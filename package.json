@@ -54,7 +54,6 @@
     "lightningcss": "^1.27.0",
     "lightningcss-linux-x64-gnu": "^1.27.0",
     "postcss": "^8.5.6",
-    "tailwindcss": "^4.1.13",
     "vite": "^5.4.2"
   }
 }
