@@ -6,5 +6,13 @@ export default defineConfig({
   plugins: [react()],
   css: {
     postcss: './postcss.config.js',
+  },
+  build: {
+    rollupOptions: {
+      external: []
+    },
+    commonjsOptions: {
+      include: [/node_modules/]
+    }
   }
 });
