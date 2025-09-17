@@ -517,11 +517,11 @@ export default function Generator() {
           />
         </div>
 
-        <div className="flex gap-3">
+        <div className="flex gap-4">
           <Button
             onClick={handleGenerate}
             disabled={loading}
-            className="form-button"
+            className="form-button me-2"
             variant="primary"
             size="md"
           >
