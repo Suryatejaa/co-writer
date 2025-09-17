@@ -1,0 +1,11 @@
+name: REMOVED - Using Vercel built-in CI/CD
+
+on: { }
+
+jobs:
+  noop:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "This workflow is disabled because Vercel built-in CI/CD is used."
+
+

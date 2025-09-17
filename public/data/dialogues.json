@@ -1,0 +1,42 @@
+[
+  {
+    "dialogue": "Em ra idhi, endhuku ala choostunnav?",
+    "situation": "when seeing something unexpected",
+    "type": "dialogue",
+    "actorStyle": "Brahmanandam",
+    "tags": ["confusion", "funny", "reaction"],
+    "relevance": ["confusion", "reaction", "surprise"]
+  },
+  {
+    "dialogue": "Nenu character lo levu ra!",
+    "situation": "when expressing frustration or anger",
+    "type": "dialogue",
+    "actorStyle": "Ali",
+    "tags": ["funny", "angry", "mass"],
+    "relevance": ["anger", "frustration", "comedy"]
+  },
+  {
+    "dialogue": "Naa peru Surya... naa illu India!",
+    "situation": "when introducing oneself with pride or patriotism",
+    "type": "dialogue",
+    "actorStyle": "Allu Arjun",
+    "tags": ["patriotic", "mass", "intro"],
+    "relevance": ["patriotism", "introduction", "heroic"]
+  },
+  {
+    "dialogue": "Nuvvu leka nenu leka!",
+    "situation": "when challenging someone to a fight or confrontation",
+    "type": "dialogue",
+    "actorStyle": "Balakrishna",
+    "tags": ["mass", "fight", "dialogue"],
+    "relevance": ["challenge", "fight", "confrontation"]
+  },
+  {
+    "dialogue": "Cheppanu brother!",
+    "situation": "when addressing friends or brothers in a friendly manner",
+    "type": "dialogue",
+    "actorStyle": "Pawan Kalyan",
+    "tags": ["funny", "popular", "mass"],
+    "relevance": ["friendship", "brother", "casual"]
+  }
+]

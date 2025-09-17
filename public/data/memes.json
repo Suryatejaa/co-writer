@@ -1,0 +1,42 @@
+[
+  {
+    "dialogue": "Ardam kavatledu ra babu 🤯",
+    "situation": "when expressing confusion or lack of understanding",
+    "type": "meme",
+    "template": "brahmi-confused.png",
+    "tags": ["confusion", "reaction", "funny"],
+    "relevance": ["confusion", "reaction", "surprise"]
+  },
+  {
+    "dialogue": "Endhuku ila chestav ra!",
+    "situation": "when expressing sadness, disappointment or emotional pain",
+    "type": "meme",
+    "template": "ali-crying.png",
+    "tags": ["cry", "emotional", "funny"],
+    "relevance": ["sadness", "emotional", "frustration"]
+  },
+  {
+    "dialogue": "Celebration mode 🔥",
+    "situation": "when expressing joy, celebration or excitement",
+    "type": "meme",
+    "template": "sunil-dance.png",
+    "tags": ["happy", "funny", "celebration"],
+    "relevance": ["celebration", "happy", "excitement"]
+  },
+  {
+    "dialogue": "Back to basics 🚲",
+    "situation": "when making sarcastic comments or going back to simple solutions",
+    "type": "meme",
+    "template": "pawan-cycle.png",
+    "tags": ["reaction", "sarcasm", "pawan"],
+    "relevance": ["sarcasm", "reaction", "simple"]
+  },
+  {
+    "dialogue": "Nuvvu leka nenu leka ⚡",
+    "situation": "when expressing anger or challenging someone",
+    "type": "meme",
+    "template": "balayya-angry.png",
+    "tags": ["mass", "angry", "funny"],
+    "relevance": ["anger", "challenge", "confrontation"]
+  }
+]

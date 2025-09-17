@@ -1,0 +1,907 @@
+import { useState, useEffect } from "react";
+import { getOrGenerateBatchScripts, convertToCeltxFormat, testApiKey } from "../services/aiService";
+import { db, analytics, withFirestoreErrorHandling } from "../firebase";
+import { doc, getDoc, setDoc, increment, collection, query, where, getDocs } from "firebase/firestore";
+import { logEvent } from "firebase/analytics";
+// Fallback data imports
+import defaultDialogues from "../../public/data/dialogues.json";
+import defaultMemes from "../../public/data/memes.json";
+import defaultTrends from "../../public/data/trends.json";
+
+// Cache to store generated script batches
+const scriptCache = [];
+
+export default function Generator() {
+  const [topic, setTopic] = useState("");
+  const [scripts, setScripts] = useState([]); // batch scripts
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isGenerated, setIsGenerated] = useState(false);
+  const [script, setScript] = useState(null); // Currently displayed script
+  const [loading, setLoading] = useState(false);
+  const [useAI, setUseAI] = useState(true);
+  const [datasets, setDatasets] = useState({
+    dialogues: defaultDialogues,
+    memes: defaultMemes,
+    trends: defaultTrends
+  });
+
+  // Log component re-renders
+  useEffect(() => {
+    console.log("🔄 Component re-rendered with state:", { topic, scripts, currentIndex, isGenerated, script, loading });
+  });
+
+  // Log whenever the script state changes
+  useEffect(() => {
+    console.log("🔍 Script state updated:", script);
+  }, [script]);
+
+  // Log whenever the scripts array state changes
+  useEffect(() => {
+    console.log("📚 Scripts array updated:", scripts);
+  }, [scripts]);
+
+  // Log whenever the datasets state changes
+  useEffect(() => {
+    console.log("📚 Datasets updated:", datasets);
+  }, [datasets]);
+
+  // Load settings and datasets from Firestore with enhanced error handling
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        // Load AI mode setting with fallback
+        const aiSetting = await withFirestoreErrorHandling(
+          async () => {
+            const settingsDoc = await getDoc(doc(db, "settings", "generator"));
+            return settingsDoc.exists() ? settingsDoc.data().useAI : true;
+          },
+          true // fallback to AI mode
+        );
+        setUseAI(aiSetting);
+
+        // Load datasets from Firestore (fallback to local data)
+        const collections = ['dialogues', 'memes', 'trends'];
+        const newDatasets = {
+          dialogues: defaultDialogues,
+          memes: defaultMemes,
+          trends: defaultTrends
+        };
+
+        for (const collectionName of collections) {
+          const collectionData = await withFirestoreErrorHandling(
+            async () => {
+              const dataDoc = await getDoc(doc(db, "datasets", collectionName));
+              return dataDoc.exists() && dataDoc.data().data ? dataDoc.data().data : null;
+            },
+            null // fallback to null, will use default data
+          );
+
+          if (collectionData) {
+            newDatasets[collectionName] = collectionData;
+          }
+          // else keep default data
+        }
+
+        console.log("📚 Loaded datasets:", newDatasets);
+        setDatasets(newDatasets);
+      } catch (error) {
+        console.log("Using default settings and data");
+        // Keep defaults - no need to show error to user
+      }
+    };
+
+    loadData();
+  }, []);
+
+  // Test API key on component mount
+  useEffect(() => {
+    const testApi = async () => {
+      try {
+        const isValid = await testApiKey();
+        console.log("🔑 API key test result:", isValid);
+      } catch (error) {
+        console.error("❌ API key test failed:", error);
+      }
+    };
+
+    testApi();
+  }, []);
+
+  // 🛡️ Script validation - Harvard-engineer level quality control
+  const validateScript = (script, topic) => {
+    const requiredSections = ['Hook:', 'Context:', 'Punchline:', 'Instagram Caption:'];
+    const missingSections = requiredSections.filter(section => !script.includes(section));
+
+    if (missingSections.length > 0) {
+      throw new Error(`Script missing required sections: ${missingSections.join(', ')}`);
+    }
+
+    // Check if topic is mentioned
+    if (!script.toLowerCase().includes(topic.toLowerCase())) {
+      console.warn('Script may not be well-connected to the topic');
+    }
+
+    return true;
+  };
+
+  // 🛡️ JSON Script validation for new structured format
+  const validateJSONScript = (scriptObj, topic) => {
+    const requiredFields = ['hook', 'context', 'punchline', 'caption'];
+    const missingFields = requiredFields.filter(field => !scriptObj[field]);
+
+    if (missingFields.length > 0) {
+      throw new Error(`Script missing required fields: ${missingFields.join(', ')}`);
+    }
+
+    // Check if topic is mentioned in any field
+    const allContent = Object.values(scriptObj).join(' ').toLowerCase();
+    if (!allContent.includes(topic.toLowerCase())) {
+      console.warn('Script may not be well-connected to the topic');
+    }
+
+    return true;
+  };
+
+  const generateRuleBasedScript = (topic, dialogues, memes, trends) => {
+    // 🛡️ Rule-based generation with same JSON structure as AI
+
+    // Simple keyword extraction
+    const extractKeywords = (topic) => {
+      return topic.toLowerCase().split(/\s+/); // split by spaces
+    };
+
+    // Match score = count of overlapping keywords
+    const matchScore = (topicKeywords, item) => {
+      const itemKeywords = (item.relevance || []).map(k => k.toLowerCase());
+      return topicKeywords.filter(k => itemKeywords.includes(k)).length;
+    };
+
+    // Smart selector
+    const selectRelevantItems = (dataset, topic, max = 2) => {
+      const keywords = extractKeywords(topic);
+
+      // Rank items by score
+      const ranked = dataset
+        .map(item => ({ ...item, score: matchScore(keywords, item) }))
+        .sort((a, b) => b.score - a.score);
+
+      // If no relevant, fallback to random shuffle
+      if (ranked[0].score === 0) {
+        // Shuffle array
+        const shuffled = [...dataset];
+        for (let i = shuffled.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+        return shuffled.slice(0, max);
+      }
+
+      return ranked.slice(0, max);
+    };
+
+    // Select relevant items
+    const selectedDialogues = selectRelevantItems(dialogues, topic, 2);
+    const selectedMemes = selectRelevantItems(memes, topic, 1);
+    const selectedTrends = selectRelevantItems(trends, topic, 1);
+
+    const selectedDialogue = selectedDialogues[0]; // Pick first from shuffled
+    const selectedMeme = selectedMemes[0]; // Pick first from shuffled
+    const selectedTrend = selectedTrends[0]; // Pick first from shuffled
+
+    // Return structured JSON object matching AI format
+    return {
+      hook: `"${selectedDialogue.text}" - ${selectedDialogue.actor} style se ${topic} gurinchi matladina!`,
+      context: `${selectedTrend.headline} - ee news vinnaka ${topic} gurinchi alochinchadam start chesanu.`,
+      punchline: `${selectedMeme.caption} - exactly ila react ayyanu ${topic} gurinchi!`,
+      caption: `${topic} ante ila untadi ra! 😅\n#TeluguReels #${selectedMeme.tags?.[0] || 'funny'} #${selectedTrend.tags?.[0] || 'trending'}`,
+      usedDataset: true // Rule-based always uses dataset
+    };
+  };
+
+  const updateAnalytics = async (topic, mode, scriptObj) => {
+    try {
+      // Log to Firebase Analytics with enhanced tracking
+      if (analytics) {
+        await withFirestoreErrorHandling(
+          async () => {
+            logEvent(analytics, 'script_generated', {
+              topic: topic,
+              mode: mode,
+              usedDataset: scriptObj?.usedDataset || false,
+              datasetRelevance: scriptObj?.usedDataset ? 'relevant' : 'irrelevant'
+            });
+          },
+          null // No fallback needed for analytics
+        );
+      }
+
+      // Update Firestore metrics with dataset usage tracking
+      await withFirestoreErrorHandling(
+        async () => {
+          const metricsRef = doc(db, "analytics", "metrics");
+          const updateData = {
+            scriptsGenerated: increment(1),
+            [mode === 'ai' ? 'aiModeUsage' : 'ruleModeUsage']: increment(1),
+            lastUpdated: new Date().toISOString()
+          };
+
+          // Track dataset usage for AI mode
+          if (mode === 'ai' && scriptObj?.usedDataset !== undefined) {
+            updateData[scriptObj.usedDataset ? 'datasetHits' : 'datasetMisses'] = increment(1);
+          }
+
+          await setDoc(metricsRef, updateData, { merge: true });
+
+          // Update popular topics
+          const topicsRef = doc(db, "analytics", "topics");
+          await setDoc(topicsRef, {
+            [topic.toLowerCase()]: increment(1)
+          }, { merge: true });
+        },
+        null // No fallback needed for analytics
+      );
+
+    } catch (error) {
+      console.log("Analytics update failed:", error.message);
+      // Don't show error to user for analytics
+    }
+  };
+
+  const handleTopicChange = (e) => {
+    const newTopic = e.target.value;
+    console.log("📝 Topic changing from", topic, "to", newTopic);
+    setTopic(newTopic);
+
+    // Only reset state when topic actually changes
+    if (newTopic !== topic) {
+      console.log("📝 Topic changed from", topic, "to", newTopic);
+      // Reset state when topic changes
+      setIsGenerated(false);
+      setScripts([]);
+      setCurrentIndex(0);
+      setScript(null);
+      console.log("🔄 State reset due to topic change");
+    }
+  };
+
+  const handleGenerate = async () => {
+    if (!topic.trim()) {
+      alert("Please enter a topic!");
+      return;
+    }
+
+    console.log("🔄 handleGenerate called with topic:", topic);
+    console.log("🔍 Datasets being used:", {
+      dialoguesLength: datasets.dialogues?.length,
+      memesLength: datasets.memes?.length,
+      trendsLength: datasets.trends?.length
+    });
+
+    // Validate datasets
+    if (!datasets.dialogues || !datasets.memes || !datasets.trends) {
+      console.error("❌ Datasets not properly loaded:", datasets);
+      alert("Datasets not loaded properly. Please try again.");
+      return;
+    }
+
+    if (datasets.dialogues.length === 0 || datasets.memes.length === 0 || datasets.trends.length === 0) {
+      console.error("❌ Datasets are empty:", datasets);
+      alert("Datasets are empty. Please try again.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      if (!isGenerated) {
+        // First time → API call with caching
+        console.log("🚀 Generating new batch for topic:", topic);
+        const batch = await getOrGenerateBatchScripts(
+          topic,
+          datasets.dialogues.slice(0, 5),
+          datasets.memes.slice(0, 5),
+          datasets.trends.slice(0, 5)
+        );
+
+        console.log("📦 Received batch:", batch); // Debug batch content
+
+        if (batch.length > 0) {
+          // Ensure each script in the batch has the required fields
+          const validatedBatch = batch.map(script => ({
+            hook: script.hook || "No hook generated",
+            context: script.context || "No context generated",
+            punchline: script.punchline || "No punchline generated",
+            caption: script.caption || "No caption generated",
+            usedDataset: script.usedDataset !== undefined ? script.usedDataset : false
+          }));
+
+          console.log("✅ Validated batch:", validatedBatch); // Debug validated batch
+
+          setScripts(validatedBatch);
+          setCurrentIndex(0);
+          setScript(validatedBatch[0]);
+          setIsGenerated(true);
+
+          console.log("🔄 State updated - Scripts:", validatedBatch); // Debug state update
+          console.log("🔄 State updated - Current script:", validatedBatch[0]); // Debug current script
+          console.log("🔄 State updated - isGenerated:", true); // Debug isGenerated state
+
+          // Update analytics
+          await updateAnalytics(topic, useAI ? 'ai' : 'rule', validatedBatch[0]);
+        } else {
+          // Handle error case
+          const errorScript = {
+            hook: "Error generating script. Please try again.",
+            context: "There was a technical issue.",
+            punchline: "System error occurred.",
+            caption: "Oops! Something went wrong 😔",
+            error: "generation_failed"
+          };
+          setScript(errorScript);
+          console.log("❌ Error script set:", errorScript); // Debug error script
+        }
+      } else {
+        // Re-generate → pick next from batch
+        console.log("🔄 Cycling to next script. Current index:", currentIndex, "Scripts length:", scripts.length);
+        if (currentIndex + 1 < scripts.length) {
+          const nextIndex = currentIndex + 1;
+          setCurrentIndex(nextIndex);
+          setScript(scripts[nextIndex]);
+
+          console.log("🔄 Cycling to next script:", scripts[nextIndex]); // Debug script cycling
+
+          // Update analytics
+          await updateAnalytics(topic, useAI ? 'ai' : 'rule', scripts[nextIndex]);
+        } else {
+          // If batch is exhausted, generate a new batch
+          console.log("🔄 Batch exhausted, generating new batch");
+          const batch = await getOrGenerateBatchScripts(
+            topic,
+            datasets.dialogues.slice(0, 5),
+            datasets.memes.slice(0, 5),
+            datasets.trends.slice(0, 5)
+          );
+
+          console.log("📦 Received new batch:", batch); // Debug new batch content
+
+          if (batch.length > 0) {
+            // Ensure each script in the batch has the required fields
+            const validatedBatch = batch.map(script => ({
+              hook: script.hook || "No hook generated",
+              context: script.context || "No context generated",
+              punchline: script.punchline || "No punchline generated",
+              caption: script.caption || "No caption generated",
+              usedDataset: script.usedDataset !== undefined ? script.usedDataset : false
+            }));
+
+            console.log("✅ Validated new batch:", validatedBatch); // Debug validated new batch
+
+            setScripts(validatedBatch);
+            setCurrentIndex(0);
+            setScript(validatedBatch[0]);
+
+            console.log("🔄 New state updated - Scripts:", validatedBatch); // Debug new state update
+            console.log("🔄 New state updated - Current script:", validatedBatch[0]); // Debug new current script
+
+            // Update analytics
+            await updateAnalytics(topic, useAI ? 'ai' : 'rule', validatedBatch[0]);
+          } else {
+            // Handle error case
+            const errorScript = {
+              hook: "Error generating script. Please try again.",
+              context: "There was a technical issue.",
+              punchline: "System error occurred.",
+              caption: "Oops! Something went wrong 😔",
+              error: "generation_failed"
+            };
+            setScript(errorScript);
+            console.log("❌ Error script set:", errorScript); // Debug error script
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error generating script:", error);
+      const errorScript = {
+        hook: "Error generating script. Please try again.",
+        context: "There was a technical issue.",
+        punchline: "System error occurred.",
+        caption: "Oops! Something went wrong 😔",
+        error: "generation_failed"
+      };
+      setScript(errorScript);
+      console.log("❌ Error script set:", errorScript); // Debug error script
+    }
+    setLoading(false);
+    console.log("🔄 handleGenerate finished. Loading state:", false);
+  };
+
+  const toggleAI = async () => {
+    const newValue = !useAI;
+    setUseAI(newValue);
+
+    // Reset state when switching between AI and rule-based
+    setIsGenerated(false);
+    setScripts([]);
+    setCurrentIndex(0);
+    setScript(null);
+
+    // Save to Firestore with enhanced error handling
+    const saveSuccess = await withFirestoreErrorHandling(
+      async () => {
+        await setDoc(doc(db, "settings", "generator"), {
+          useAI: newValue,
+          updatedAt: new Date().toISOString()
+        });
+        return true;
+      },
+      false // fallback to false indicating save failed
+    );
+
+    if (saveSuccess) {
+      console.log(`✅ AI Mode ${newValue ? 'enabled' : 'disabled'}`);
+    } else {
+      console.log(`⚠️ AI setting updated locally but not synced to cloud`);
+    }
+  };
+
+  return (
+    <div style={{
+      padding: "8px",
+      maxWidth: "800px",
+      margin: "0 auto",
+      minHeight: "100vh",
+      width: "100%",
+      boxSizing: "border-box"
+    }}>
+      {/* Header - Professional style with retro cyberpunk vibe */}
+      <div style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "4px",
+        marginBottom: "4px",
+        alignItems: "flex-start"
+      }}>
+        <h2 style={{
+          margin: "0",
+          fontSize: "18px",
+          fontFamily: "'JetBrains Mono', monospace",
+          color: "#ff66cc",
+          fontWeight: "600",
+          letterSpacing: "0.5px"
+        }}>
+          Telugu Script Generator
+        </h2>
+        <div style={{
+          padding: "2px 6px",
+          backgroundColor: useAI ? "#000" : "#666",
+          color: "#00ff99",
+          borderRadius: "2px",
+          fontSize: "11px",
+          fontFamily: "'JetBrains Mono', monospace",
+          fontWeight: "500",
+          border: "1px solid #00ff99",
+          boxShadow: "0 0 2px rgba(0, 255, 153, 0.3)"
+        }}>
+          {useAI ? "AI" : "RULE"}
+        </div>
+      </div>
+
+      {/* Input Section - Professional style with neon accents */}
+      <div style={{ marginBottom: "4px" }}>
+        <input
+          type="text"
+          placeholder="Enter topic..."
+          value={topic}
+          onChange={handleTopicChange}
+          style={{
+            width: "100%",
+            padding: "4px",
+            fontSize: "14px",
+            fontFamily: "'JetBrains Mono', monospace",
+            border: "1px solid #333",
+            borderRadius: "2px",
+            marginBottom: "4px",
+            boxSizing: "border-box",
+            backgroundColor: "rgba(255, 255, 255, 0.03)",
+            color: "#00ff99",
+            letterSpacing: "0.5px"
+          }}
+          onKeyPress={(e) => e.key === 'Enter' && handleGenerate()}
+        />
+        <div style={{ display: "flex", gap: "4px" }}>
+          <button
+            onClick={handleGenerate}
+            disabled={loading}
+            style={{
+              backgroundColor: loading ? "#333" : "#000",
+              color: "#00ff99",
+              padding: "4px 8px",
+              fontSize: "14px",
+              fontFamily: "'JetBrains Mono', monospace",
+              border: "1px solid #00ff99",
+              borderRadius: "2px",
+              cursor: loading ? "not-allowed" : "pointer",
+              flex: 1,
+              fontWeight: "500",
+              letterSpacing: "0.5px",
+              boxShadow: loading ? "none" : "0 0 2px rgba(0, 255, 153, 0.3)",
+              transition: "all 0.2s ease-in-out"
+            }}
+            onMouseOver={(e) => !loading && (e.target.style.boxShadow = "0 0 10px #00ff99")}
+            onMouseOut={(e) => !loading && (e.target.style.boxShadow = "0 0 2px rgba(0, 255, 153, 0.3)"})}
+          >
+            {loading ? "Generating..." : (isGenerated ? "Re-generate" : "Generate")}
+          </button>
+          <button
+            onClick={toggleAI}
+            style={{
+              padding: "4px 8px",
+              backgroundColor: useAI ? "#000" : "#666",
+              color: "#00ff99",
+              border: "1px solid #00ff99",
+              fontSize: "14px",
+              cursor: "pointer",
+              minWidth: "60px",
+              fontFamily: "'JetBrains Mono', monospace",
+              letterSpacing: "0.5px",
+              boxShadow: "0 0 2px rgba(0, 255, 153, 0.3)",
+              transition: "all 0.2s ease-in-out"
+            }}
+            onMouseOver={(e) => e.target.style.boxShadow = "0 0 10px #00ff99"}
+            onMouseOut={(e) => e.target.style.boxShadow = "0 0 2px rgba(0, 255, 153, 0.3)"}
+          >
+            {useAI ? "AI" : "RULE"}
+          </button>
+        </div>
+      </div>
+
+      {/* Script Output - Mobile optimized with glass-card panels */}
+      {(script || isGenerated) && (
+        <div className="section" style={{
+          backgroundColor: "rgba(255, 255, 255, 0.03)",
+          padding: "4px",
+          border: "1px solid #333",
+          marginBottom: "4px",
+          width: "100%",
+          boxSizing: "border-box",
+          borderRadius: "6px"
+        }}>
+          {console.log("🔄 Rendering script output. Script:", script, "isGenerated:", isGenerated)}
+          {script && script.error && (
+            <div style={{
+              backgroundColor: "rgba(255, 255, 255, 0.03)",
+              color: "#ff66cc",
+              padding: "4px",
+              border: "1px solid #333",
+              marginBottom: "4px",
+              fontSize: "12px",
+              fontFamily: "'JetBrains Mono', monospace",
+              textAlign: "center",
+              borderRadius: "6px"
+            }}>
+              ⚠ {script.error}
+            </div>
+          )}
+
+          <h3 style={{
+            color: "#ff66cc",
+            marginBottom: "4px",
+            borderBottom: "1px solid #333",
+            paddingBottom: "4px",
+            fontSize: "14px",
+            textAlign: "left",
+            fontFamily: "'JetBrains Mono', monospace",
+            fontWeight: "400"
+          }}>
+            ▶ Generated Telugu Script
+          </h3>
+
+          {/* Show message if script is null but isGenerated is true */}
+          {!script && isGenerated && (
+            <div style={{
+              backgroundColor: "rgba(255, 255, 255, 0.03)",
+              color: "#ff66cc",
+              padding: "4px",
+              border: "1px solid #333",
+              marginBottom: "4px",
+              fontSize: "12px",
+              fontFamily: "'JetBrains Mono', monospace",
+              textAlign: "center",
+              borderRadius: "6px"
+            }}>
+              ⚠ Script data not available. Please try generating again.
+            </div>
+          )}
+
+          {/* Dataset Usage Indicator */}
+          {script && "usedDataset" in script && (
+            <div style={{
+              padding: "2px 4px",
+              backgroundColor: script.usedDataset ? "#000" : "#666",
+              color: "#00ff99",
+              fontSize: "11px",
+              fontFamily: "'JetBrains Mono', monospace",
+              textAlign: "center",
+              marginBottom: "4px",
+              border: "1px solid #00ff99",
+              borderRadius: "2px",
+              boxShadow: "0 0 2px rgba(0, 255, 153, 0.3)"
+            }}>
+              {script.usedDataset ?
+                "✓ DATASET" :
+                "· AI GEN"
+              }
+            </div>
+          )}
+
+          {/* Hook Section - Glass card panel */}
+          <div className="section" style={{
+            marginBottom: "4px",
+            borderBottom: "1px solid #333",
+            paddingBottom: "4px",
+            backgroundColor: "rgba(255, 255, 255, 0.03)",
+            border: "1px solid #333",
+            padding: "12px",
+            borderRadius: "6px"
+          }}>
+            <h4 style={{
+              color: "#ff66cc",
+              marginBottom: "2px",
+              fontSize: "12px",
+              fontFamily: "'JetBrains Mono', monospace",
+              fontWeight: "400",
+              display: "flex",
+              alignItems: "center",
+              gap: "4px"
+            }}>
+              • Hook
+            </h4>
+            <p style={{
+              fontSize: "12px",
+              lineHeight: "1.4",
+              color: "#00ff99",
+              backgroundColor: "rgba(0, 0, 0, 0.2)",
+              padding: "4px",
+              border: "1px solid #333",
+              margin: "0",
+              fontFamily: "'JetBrains Mono', monospace",
+              wordBreak: "break-word",
+              borderRadius: "4px"
+            }}>
+              {script ? (script.hook || "No hook generated") : "Loading..."}
+            </p>
+          </div>
+
+          {/* Context Section - Glass card panel */}
+          <div className="section" style={{
+            marginBottom: "4px",
+            borderBottom: "1px solid #333",
+            paddingBottom: "4px",
+            backgroundColor: "rgba(255, 255, 255, 0.03)",
+            border: "1px solid #333",
+            padding: "12px",
+            borderRadius: "6px"
+          }}>
+            <h4 style={{
+              color: "#ff66cc",
+              marginBottom: "2px",
+              fontSize: "12px",
+              fontFamily: "'JetBrains Mono', monospace",
+              fontWeight: "400",
+              display: "flex",
+              alignItems: "center",
+              gap: "4px"
+            }}>
+              • Context
+            </h4>
+            <p style={{
+              fontSize: "12px",
+              lineHeight: "1.4",
+              color: "#00ff99",
+              backgroundColor: "rgba(0, 0, 0, 0.2)",
+              padding: "4px",
+              border: "1px solid #333",
+              margin: "0",
+              fontFamily: "'JetBrains Mono', monospace",
+              wordBreak: "break-word",
+              borderRadius: "4px"
+            }}>
+              {script ? (script.context || "No context generated") : "Loading..."}
+            </p>
+          </div>
+
+          {/* Punchline Section - Glass card panel */}
+          <div className="section" style={{
+            marginBottom: "4px",
+            borderBottom: "1px solid #333",
+            paddingBottom: "4px",
+            backgroundColor: "rgba(255, 255, 255, 0.03)",
+            border: "1px solid #333",
+            padding: "12px",
+            borderRadius: "6px"
+          }}>
+            <h4 style={{
+              color: "#ff66cc",
+              marginBottom: "2px",
+              fontSize: "12px",
+              fontFamily: "'JetBrains Mono', monospace",
+              fontWeight: "400",
+              display: "flex",
+              alignItems: "center",
+              gap: "4px"
+            }}>
+              • Punchline
+            </h4>
+            <p style={{
+              fontSize: "12px",
+              lineHeight: "1.4",
+              color: "#00ff99",
+              backgroundColor: "rgba(0, 0, 0, 0.2)",
+              padding: "4px",
+              border: "1px solid #333",
+              margin: "0",
+              fontFamily: "'JetBrains Mono', monospace",
+              wordBreak: "break-word",
+              borderRadius: "4px"
+            }}>
+              {script ? (script.punchline || "No punchline generated") : "Loading..."}
+            </p>
+          </div>
+
+          {/* Instagram Caption Section - Glass card panel */}
+          <div className="section" style={{
+            marginBottom: "4px",
+            borderBottom: "1px solid #333",
+            paddingBottom: "4px",
+            backgroundColor: "rgba(255, 255, 255, 0.03)",
+            border: "1px solid #333",
+            padding: "12px",
+            borderRadius: "6px"
+          }}>
+            <h4 style={{
+              color: "#ff66cc",
+              marginBottom: "2px",
+              fontSize: "12px",
+              fontFamily: "'JetBrains Mono', monospace",
+              fontWeight: "400",
+              display: "flex",
+              alignItems: "center",
+              gap: "4px"
+            }}>
+              • Caption
+            </h4>
+            <p style={{
+              fontSize: "12px",
+              lineHeight: "1.4",
+              color: "#00ff99",
+              backgroundColor: "rgba(0, 0, 0, 0.2)",
+              padding: "4px",
+              border: "1px solid #333",
+              whiteSpace: "pre-line",
+              margin: "0",
+              fontFamily: "'JetBrains Mono', monospace",
+              wordBreak: "break-word",
+              borderRadius: "4px"
+            }}>
+              {script ? (script.caption || "No caption generated") : "Loading..."}
+            </p>
+          </div>
+
+          {/* Copy Button with neon hover effect */}
+          <button
+            onClick={() => {
+              const fullScript = `Hook: ${script.hook}
+
+Context: ${script.context}
+
+Punchline: ${script.punchline}
+
+Caption: ${script.caption}`;
+              navigator.clipboard.writeText(fullScript);
+              alert('Script copied to clipboard!');
+            }}
+            style={{
+              marginTop: "4px",
+              padding: "4px 8px",
+              backgroundColor: "#000",
+              color: "#00ff99",
+              border: "1px solid #00ff99",
+              cursor: "pointer",
+              fontSize: "11px",
+              fontFamily: "'JetBrains Mono', monospace",
+              width: "100%",
+              marginBottom: "4px",
+              letterSpacing: "0.5px",
+              boxShadow: "0 0 2px rgba(0, 255, 153, 0.3)",
+              transition: "all 0.2s ease-in-out",
+              borderRadius: "2px"
+            }}
+            onMouseOver={(e) => e.target.style.boxShadow = "0 0 10px #00ff99"}
+            onMouseOut={(e) => e.target.style.boxShadow = "0 0 2px rgba(0, 255, 153, 0.3)"}
+          >
+            ⧉ Copy Script
+          </button>
+
+          {/* Export to Celtx Button with neon hover effect */}
+          <button
+            onClick={() => {
+              const celtxScript = convertToCeltxFormat(script);
+              const blob = new Blob([celtxScript], { type: 'text/plain' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `telugu-reel-${topic.replace(/[^a-z0-9]/gi, '_').toLowerCase()}-${new Date().toISOString().slice(0, 10)}.celtx`;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+              alert('Celtx format script downloaded!');
+            }}
+            style={{
+              marginTop: "4px",
+              padding: "4px 8px",
+              backgroundColor: "#000",
+              color: "#ff66cc",
+              border: "1px solid #ff66cc",
+              cursor: "pointer",
+              fontSize: "11px",
+              fontFamily: "'JetBrains Mono', monospace",
+              width: "100%",
+              letterSpacing: "0.5px",
+              boxShadow: "0 0 2px rgba(255, 102, 204, 0.3)",
+              transition: "all 0.2s ease-in-out",
+              borderRadius: "2px"
+            }}
+            onMouseOver={(e) => e.target.style.boxShadow = "0 0 10px #ff66cc"}
+            onMouseOut={(e) => e.target.style.boxShadow = "0 0 2px rgba(255, 102, 204, 0.3)"})}
+          >
+            ⬇ Export Celtx Format
+          </button>
+        </div>
+      )}
+
+      {/* Info Panel - Mobile optimized with glass-card styling */}
+      <div className="section" style={{
+        marginTop: "8px",
+        padding: "4px",
+        backgroundColor: "rgba(255, 255, 255, 0.03)",
+        border: "1px solid #333",
+        fontSize: "11px",
+        color: "#00ff99",
+        width: "100%",
+        boxSizing: "border-box",
+        fontFamily: "'JetBrains Mono', monospace",
+        borderRadius: "6px"
+      }}>
+        <div style={{ textAlign: "center", marginBottom: "4px", fontWeight: "400", color: "#ff66cc" }}>
+          ▪ System Info
+        </div>
+
+        <div style={{
+          display: "grid",
+          gap: "2px",
+          fontSize: "10px",
+          lineHeight: "1.2"
+        }}>
+          <div>• JSON output enforced</div>
+          <div>• 4-section validation</div>
+          <div>• Dataset content only</div>
+          <div>• Max 2 dialogues, 1 meme, 1 trend</div>
+          <div>• Actor style preserved</div>
+          <div>• PG-13 Telugu-English humor</div>
+        </div>
+
+        <div style={{
+          fontSize: "9px",
+          fontStyle: "italic",
+          marginTop: "4px",
+          textAlign: "center",
+          opacity: "0.7"
+        }}>
+          Data: {datasets.dialogues === defaultDialogues ? 'local' : 'firestore'}
+        </div>
+      </div>
+
+      {/* Desktop Enhancement - handled by responsive inline styles */}
+    </div>
+  );
+}

@@ -1,0 +1,47 @@
+[
+  {
+    "dialogue": "Hyderabad traffic turned 2-hour journey into 5 hours yesterday",
+    "situation": "when creating content about daily struggles in Hyderabad",
+    "type": "trend",
+    "source": "Eenadu",
+    "date": "2025-09-12",
+    "tags": ["hyderabad", "traffic", "frustration"],
+    "relevance": ["hyderabad", "traffic", "frustration", "daily life"]
+  },
+  {
+    "dialogue": "Fuel prices hit record high in Hyderabad",
+    "situation": "when creating content about financial struggles or rising costs",
+    "type": "trend",
+    "source": "Sakshi",
+    "date": "2025-09-10",
+    "tags": ["fuel", "money", "hyderabad"],
+    "relevance": ["fuel", "money", "expenses", "hyderabad"]
+  },
+  {
+    "dialogue": "Latest Tollywood release breaks box office records",
+    "situation": "when creating content about movies or entertainment industry",
+    "type": "trend",
+    "source": "Andhra Jyothi",
+    "date": "2025-09-09",
+    "tags": ["movies", "cinema", "tollywood"],
+    "relevance": ["movies", "entertainment", "tollywood", "box office"]
+  },
+  {
+    "dialogue": "Heavy rains flood several colonies in Hyderabad",
+    "situation": "when creating content about weather conditions or natural events",
+    "type": "trend",
+    "source": "Eenadu",
+    "date": "2025-09-07",
+    "tags": ["hyderabad", "rains", "weather"],
+    "relevance": ["weather", "rains", "hyderabad", "natural disaster"]
+  },
+  {
+    "dialogue": "Celebrity political entry sparks heated debates",
+    "situation": "when creating content about politics or celebrity controversies",
+    "type": "trend",
+    "source": "GreatAndhra",
+    "date": "2025-09-05",
+    "tags": ["politics", "controversy", "celebrity"],
+    "relevance": ["politics", "celebrity", "controversy", "debate"]
+  }
+]

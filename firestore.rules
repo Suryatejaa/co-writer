@@ -1,0 +1,60 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 🔐 Admin-only dataset collection
+    match /datasets/{docId} {
+      // Allow read for all authenticated users (anonymous sign-in)
+      allow read: if request.auth != null;
+      
+      // Allow write only for admin users
+      allow write: if request.auth != null && 
+                   exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // 🔐 Admin-only settings collection
+    match /settings/{docId} {
+      // Allow read for all authenticated users
+      allow read: if request.auth != null;
+      
+      // Allow write only for admin users
+      allow write: if request.auth != null && 
+                   exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // 👥 Admins collection - only readable by authenticated users
+    match /admins/{docId} {
+      // Allow read for authenticated users to check admin status
+      allow read: if request.auth != null;
+      
+      // Prevent write access through rules (manual admin setup only)
+      allow write: if false;
+    }
+
+    // 📊 Analytics collection - read/write for authenticated users
+    match /analytics/{docId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // 📝 Generated scripts - allow all signed-in (anonymous) users
+    match /scripts/{docId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // 📈 User sessions and metrics
+    match /sessions/{docId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // 🙌 Contributions (dialogues, memes, trends)
+    // Allow anyone signed in (even anonymously) to submit contributions
+    // Allow reads for all signed-in users (since Generator needs them)
+    match /contentItems/{docId} {
+      allow create: if request.auth != null;
+      allow read: if request.auth != null;
+      // Prevent edits/deletes → append-only model
+      allow update, delete: if false;
+    }
+  }
+}
