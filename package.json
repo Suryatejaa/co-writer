@@ -25,6 +25,7 @@
     "test": "jest"
   },
   "dependencies": {
+    "@rollup/rollup-linux-x64-gnu": "^4.21.3",
     "@tailwindcss/postcss": "^4.1.13",
     "firebase": "^12.2.1",
     "framer-motion": "^12.23.13",
