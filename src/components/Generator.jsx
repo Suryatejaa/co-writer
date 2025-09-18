@@ -1,7 +1,7 @@
 // Update src/components/Generator.jsx
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { getOrGenerateBatchScripts, convertToCeltxFormat, testApiKey } from "../services/aiService";
+import { getOrGenerateBatchScripts, convertToCeltxFormat, testApiKey, generateScript } from "../services/aiService";
 import { db, analytics, withFirestoreErrorHandling } from "../firebase";
 import { doc, getDoc, setDoc, increment, collection, query, where, getDocs } from "firebase/firestore";
 // Fallback data imports
@@ -13,8 +13,8 @@ import { findRelevantItems } from "../utils/relevance";
 import Input from "./ui/Input";
 import Button from "./ui/Button";
 import Select from "./ui/Select";
-// Import the new ReelLoader component
-import ReelLoader from "./ReelLoader";
+// Import the new ReelIdeaLoader component
+import ReelIdeaLoader from "./ReelIdeaLoader";
 // Import the new PunchlineSuggestions component
 import PunchlineSuggestions from "./PunchlineSuggestions";
 
@@ -29,6 +29,7 @@ export default function Generator() {
   const [isGenerated, setIsGenerated] = useState(false);
   const [script, setScript] = useState(null); // Currently displayed script
   const [loading, setLoading] = useState(false);
+  const [isScriptReady, setIsScriptReady] = useState(false); // Track when script is actually ready
   const [useAI, setUseAI] = useState(true);
   const [datasets, setDatasets] = useState({
     dialogues: defaultDialogues,
@@ -317,16 +318,18 @@ export default function Generator() {
       return;
     }
 
+    // Reset script ready state when starting new generation
+    setIsScriptReady(false);
     setLoading(true);
     try {
       if (!isGenerated) {
         // First time → API call with caching
         console.log("🚀 Generating new batch for topic:", topic, "with genre:", genre);
 
-        // Use relevance matching to find relevant items
-        const relevantDialogues = findRelevantItems(topic, datasets.dialogues, "dialogue", 2);
-        const relevantMemes = findRelevantItems(topic, datasets.memes, "meme", 1);
-        const relevantTrends = findRelevantItems(topic, datasets.trends, "trend", 1);
+        // Use relevance matching to find relevant items with genre awareness
+        const relevantDialogues = findRelevantItems(topic, datasets.dialogues, "dialogue", 1, genre);
+        const relevantMemes = findRelevantItems(topic, datasets.memes, "meme", 1, genre);
+        const relevantTrends = findRelevantItems(topic, datasets.trends, "trend", 1, genre);
 
         console.log("🔍 Relevant items found:", { relevantDialogues, relevantMemes, relevantTrends });
 
@@ -348,6 +351,7 @@ export default function Generator() {
           setCurrentIndex(0);
           setScript(batch[0]);
           setIsGenerated(true);
+          setIsScriptReady(true); // Script is now ready
 
           console.log("🔄 State updated - Scripts:", batch); // Debug state update
           console.log("🔄 State updated - Current script:", batch[0]); // Debug current script
@@ -362,6 +366,7 @@ export default function Generator() {
             error: "generation_failed"
           };
           setScript(errorScript);
+          setIsScriptReady(true); // Even in error case, we're done generating
           console.log("❌ Error script set:", errorScript); // Debug error script
         }
       } else {
@@ -380,10 +385,10 @@ export default function Generator() {
           // If batch is exhausted, generate a new batch
           console.log("🔄 Batch exhausted, generating new batch");
 
-          // Use relevance matching to find relevant items
-          const relevantDialogues = findRelevantItems(topic, datasets.dialogues, "dialogue", 2);
-          const relevantMemes = findRelevantItems(topic, datasets.memes, "meme", 1);
-          const relevantTrends = findRelevantItems(topic, datasets.trends, "trend", 1);
+          // Use relevance matching to find relevant items with genre awareness
+          const relevantDialogues = findRelevantItems(topic, datasets.dialogues, "dialogue", 1, genre);
+          const relevantMemes = findRelevantItems(topic, datasets.memes, "meme", 1, genre);
+          const relevantTrends = findRelevantItems(topic, datasets.trends, "trend", 1, genre);
 
           console.log("🔍 Relevant items found:", { relevantDialogues, relevantMemes, relevantTrends });
 
@@ -404,6 +409,7 @@ export default function Generator() {
             setScripts(batch);
             setCurrentIndex(0);
             setScript(batch[0]);
+            setIsScriptReady(true); // Script is now ready
 
             console.log("🔄 New state updated - Scripts:", batch); // Debug new state update
             console.log("🔄 New state updated - Current script:", batch[0]); // Debug new current script
@@ -417,6 +423,7 @@ export default function Generator() {
               error: "generation_failed"
             };
             setScript(errorScript);
+            setIsScriptReady(true); // Even in error case, we're done generating
             console.log("❌ Error script set:", errorScript); // Debug error script
           }
         }
@@ -428,9 +435,12 @@ export default function Generator() {
         error: "generation_failed"
       };
       setScript(errorScript);
+      setIsScriptReady(true); // Even in error case, we're done generating
       console.log("❌ Error script set:", errorScript); // Debug error script
+    } finally {
+      // Set loading to false when generation is complete (either success or error)
+      setLoading(false);
     }
-    setLoading(false);
     console.log("🔄 handleGenerate finished. Loading state:", false);
   };
 
@@ -443,13 +453,14 @@ export default function Generator() {
     setTopic(newTopic);
 
     // Trigger generation with the new topic
+    setIsScriptReady(false); // Reset script ready state
     setLoading(true);
 
     try {
-      // Use relevance matching to find relevant items
-      const relevantDialogues = findRelevantItems(newTopic, datasets.dialogues, "dialogue", 2);
-      const relevantMemes = findRelevantItems(newTopic, datasets.memes, "meme", 1);
-      const relevantTrends = findRelevantItems(newTopic, datasets.trends, "trend", 1);
+      // Use relevance matching to find relevant items with genre awareness
+      const relevantDialogues = findRelevantItems(newTopic, datasets.dialogues, "dialogue", 1, genre);
+      const relevantMemes = findRelevantItems(newTopic, datasets.memes, "meme", 1, genre);
+      const relevantTrends = findRelevantItems(newTopic, datasets.trends, "trend", 1, genre);
 
       console.log("🔍 Relevant items found for suggestion:", { relevantDialogues, relevantMemes, relevantTrends });
 
@@ -469,6 +480,7 @@ export default function Generator() {
         setCurrentIndex(0);
         setScript(batch[0]);
         setIsGenerated(true);
+        setIsScriptReady(true); // Script is now ready
 
         // Update analytics
         await updateAnalytics(newTopic, useAI ? 'ai' : 'rule', batch[0]);
@@ -478,6 +490,7 @@ export default function Generator() {
           error: "generation_failed"
         };
         setScript(errorScript);
+        setIsScriptReady(true); // Even in error case, we're done generating
       }
     } catch (error) {
       console.error("Error generating script with suggestion:", error);
@@ -486,6 +499,7 @@ export default function Generator() {
         error: "generation_failed"
       };
       setScript(errorScript);
+      setIsScriptReady(true); // Even in error case, we're done generating
     }
 
     setLoading(false);
@@ -539,6 +553,14 @@ export default function Generator() {
       console.log(`✅ AI Mode ${newValue ? 'enabled' : 'disabled'}`);
     } else {
       console.log(`⚠️ AI setting updated locally but not synced to cloud`);
+    }
+  };
+
+  // Function to handle when the ReelIdeaLoader is done
+  const handleLoaderDone = () => {
+    // Only allow transitioning to script view when script is actually ready
+    if (isScriptReady) {
+      setLoading(false);
     }
   };
 
@@ -606,7 +628,7 @@ export default function Generator() {
             variant="primary"
             size="md"
           >
-            {loading ? "Generating..." : (isGenerated ? "Re-generate" : "Generate")}
+            {loading ? "Generating..." : (isGenerated ? `Script ${currentIndex + 1}/3` : "Generate")}
           </Button>
           {/* <Button
             onClick={toggleAI}
@@ -617,6 +639,11 @@ export default function Generator() {
             {useAI ? "AI" : "RULE"}
           </Button> */}
         </div>
+        {isGenerated && (
+          <div className="text-sm text-gray-600 mt-2">
+            Make changes to the prompt to re-generate
+          </div>
+        )}
       </motion.div>
 
       {/* Script Output - Mobile optimized with glass-card panels */}
@@ -631,7 +658,12 @@ export default function Generator() {
 
           {/* Show loader when loading */}
           {loading && (
-            <ReelLoader genre={genre.toLowerCase()} />
+            <ReelIdeaLoader
+              onDone={handleLoaderDone}
+              topic={topic}
+              genre={genre}
+              isScriptReady={isScriptReady}
+            />
           )}
 
           {/* Show error or script when not loading */}

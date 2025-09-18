@@ -1,0 +1,72 @@
+[
+  {
+    "id": "idea-1",
+    "dialogue": "Garba transition spin",
+    "situation": "Start casual wear → spin mid-air → full Garba lehenga with mirror or dupatta flip. High energy with festive music.",
+    "type": "trend",
+    "tags": ["dance", "festival", "transition"]
+  },
+  {
+    "id": "idea-2",
+    "dialogue": "Vintage saree cinematic glow",
+    "situation": "Wear vintage saree, golden hour light, wind-blown hair, retro filter; slow zoom and film grain effect.",
+    "type": "trend",
+    "tags": ["cinematic", "vintage", "fashion"]
+  },
+  {
+    "id": "idea-3",
+    "dialogue": "Sibling money fight comedic sketch",
+    "situation": "Sibling arguments over small money things, funny dialogues, exaggeration and relatable punchline.",
+    "type": "dialogue",
+    "tags": ["comedy", "family", "relatable"]
+  },
+  {
+    "id": "idea-4",
+    "dialogue": "Day-in-life routine (Telugu student)",
+    "situation": "Morning alarm, college rush, study, chai breaks, internet lag — fast cuts + trending audio.",
+    "type": "trend",
+    "tags": ["daily", "student", "fast cuts"]
+  },
+  {
+    "id": "idea-5",
+    "dialogue": "Before vs After transformation",
+    "situation": "Messy vs glam, plain vs fancy — show contrast with clothes, skincare, room decor.",
+    "type": "trend",
+    "tags": ["transformation", "fashion", "beauty"]
+  },
+  {
+    "id": "idea-6",
+    "dialogue": "POV style: Your future self visiting you",
+    "situation": "Act out dialogue with future-you giving advice/warning, emotional or funny twist.",
+    "type": "trend",
+    "tags": ["POV", "emotional", "storytelling"]
+  },
+  {
+    "id": "idea-7",
+    "dialogue": "Reaction to 'free advice' memes",
+    "situation": "Reacting to people giving unsolicited advice – classic memes + sarcasm + punchline.",
+    "type": "meme",
+    "tags": ["reaction", "humor", "memes"]
+  },
+  {
+    "id": "idea-8",
+    "dialogue": "Quick tutorial under 15 seconds",
+    "situation": "One-minute hack: e.g., how to style dupatta 3 ways, or make chai variation; keep energy high.",
+    "type": "trend",
+    "tags": ["tutorial", "tips", "quick"]
+  },
+  {
+    "id": "idea-9",
+    "dialogue": "Trending audio + iconic hook dance",
+    "situation": "Use trending music, create a catchy hook dance move that others can replicate; repeat move for transitions.",
+    "type": "trend",
+    "tags": ["dance", "trend", "hook"]
+  },
+  {
+    "id": "idea-10",
+    "dialogue": "Cinematic rainy sequence",
+    "situation": "Rain drops, slow motion, umbrella, reflection, emotional music — mood reels.",
+    "type": "trend",
+    "tags": ["cinematic", "emotional", "mood"]
+  }
+]

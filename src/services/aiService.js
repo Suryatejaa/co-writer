@@ -70,6 +70,9 @@ export const testApiKey = async () => {
   }
 };
 
+// Force browser to reload file to fix caching issue with duplicate function declaration
+// This is a workaround for the "Identifier 'generateScript' has already been declared" error
+
 export const generateCeltxScript = async (topic, tone = "Humorous Telugu-English mix", length = 30) => {
   const prompt = `
 You are a professional Celtx-format screenwriter. For every request, return only plain text in Celtx-style screenplay format using the template:
@@ -454,11 +457,11 @@ export const generateBatchScripts = async (topic, dialogues, memes, trends, genr
   // now provides a fallback mechanism that may return empty arrays when no relevant items are found
   // Instead, we handle empty arrays gracefully in the prompt generation
 
-  // Use relevance matching to find relevant items
+  // Use relevance matching to find relevant items with genre awareness
   const { findRelevantItems } = await import("../utils/relevance");
-  const selectedDialogues = findRelevantItems(topic, dialogues, "dialogue", 2);
-  const selectedMemes = findRelevantItems(topic, memes, "meme", 1);
-  const selectedTrends = findRelevantItems(topic, trends, "trend", 1);
+  const selectedDialogues = findRelevantItems(topic, dialogues, "dialogue", 1, genre); // Only pick 1 for sharper focus
+  const selectedMemes = findRelevantItems(topic, memes, "meme", 1, genre);
+  const selectedTrends = findRelevantItems(topic, trends, "trend", 1, genre);
 
   // Find the most relevant item to use as punchline suggestion
   const allItems = [...selectedDialogues, ...selectedMemes, ...selectedTrends];
@@ -486,13 +489,14 @@ You are a Telugu-English Celtx screenplay writer for Instagram reels.
 Your job is to generate a short screenplay (20–30s) based strictly on the TOPIC and GENRE.
 
 RULES:
-1. Use **exactly one dialogue** from the provided DATASET (don't use more than one).  
-2. Do not list multiple dataset items; just pick one that fits naturally.  
+1. Use **exactly one dialogue/meme/trend** from the provided DATASET (don't use more than one).  
+2. Do not list multiple dataset items; just pick the most relevant one that fits naturally.  
 3. Build a **proper HOOK** in the first 5 seconds that makes it Instagram-viral (relatable, funny, emotional, or shocking depending on GENRE).  
 4. Context must develop the situation. Punchline should land hard. Caption should be short, Gen-Z, Telugu-English mix.  
 5. Use Celtx screenplay structure only. No JSON.
 6. Include proper scene descriptions, character actions, and timing.
 7. If a PUNCHLINE SUGGESTION is provided, consider using it as the punchline as it's highly relevant to the topic.
+8. Stick to the requested GENRE: ${genre}.
 
 GENRE: ${genre}
 TOPIC: "${topic}"
@@ -504,8 +508,8 @@ TOPIC: "${topic}"
   }
 
   // Add datasets to prompt only if they contain items
-  if (selectedDialogues.length > 0) {
-    prompt += `DATASET (choose 1 dialogue ONLY):\n${JSON.stringify(selectedDialogues, null, 2)}\n`;
+  if (selectedDialogues.length > 0 || selectedMemes.length > 0 || selectedTrends.length > 0) {
+    prompt += `DATASET (choose 1 item ONLY):\n${JSON.stringify([...selectedDialogues, ...selectedMemes, ...selectedTrends], null, 2)}\n`;
   }
 
   // Add example format that matches the user's request exactly
@@ -540,7 +544,7 @@ FADE OUT.
 
 Generate exactly 3 different screenplay variations for the topic "${topic}" with genre "${genre}".
 Each screenplay should be separated by "---" and follow the exact format above.
-Use only one dialogue from the dataset in each screenplay.
+Use only one item from the dataset in each screenplay.
 `;
 
   try {
@@ -784,7 +788,7 @@ function generateRuleBasedScript(topic, dialogues, memes, trends, genre = "Comed
 
   if (dialogues.length > 0 || memes.length > 0 || trends.length > 0) {
     // We already have relevant items, use them directly
-    selectedDialogues = dialogues.slice(0, 2);
+    selectedDialogues = dialogues.slice(0, 1); // Only pick 1 for sharper focus
     selectedMemes = memes.slice(0, 1);
     selectedTrends = trends.slice(0, 1);
   } else {
@@ -806,7 +810,7 @@ function generateRuleBasedScript(topic, dialogues, memes, trends, genre = "Comed
     };
 
     // Smart selector
-    const selectRelevantItems = (dataset, topic, max = 2) => {
+    const selectRelevantItems = (dataset, topic, max = 1) => {
       const keywords = extractKeywords(topic);
 
       // Rank items by score
@@ -829,7 +833,7 @@ function generateRuleBasedScript(topic, dialogues, memes, trends, genre = "Comed
     };
 
     // Select relevant items
-    selectedDialogues = selectRelevantItems(defaultDialogues, topic, 2);
+    selectedDialogues = selectRelevantItems(defaultDialogues, topic, 1);
     selectedMemes = selectRelevantItems(defaultMemes, topic, 1);
     selectedTrends = selectRelevantItems(defaultTrends, topic, 1);
   }
@@ -878,6 +882,21 @@ function generateRuleBasedScript(topic, dialogues, memes, trends, genre = "Comed
         hookLine = selectedDialogue ? `CHARACTER drops "${selectedDialogue.text || selectedDialogue.dialogue}" brutally` : `CHARACTER stares down ${topic} with attitude`;
         contextLine = selectedTrend ? `BURNING ISSUE: ${selectedTrend.headline || selectedTrend.text}` : `Intense beat drops as CHARACTER faces ${topic}`;
         punchlineLine = selectedMeme ? `CHARACTER claps back with "${selectedMeme.caption || selectedMeme.text}"` : `CHARACTER destroys ${topic} with savage wit`;
+        break;
+      case "Dramatic":
+        hookLine = selectedDialogue ? `CHARACTER declares "${selectedDialogue.text || selectedDialogue.dialogue}"` : `CHARACTER faces a dramatic moment about ${topic}`;
+        contextLine = selectedTrend ? `BREAKING: ${selectedTrend.headline || selectedTrend.text}` : `Tension builds as CHARACTER deals with ${topic}`;
+        punchlineLine = selectedMeme ? `CHARACTER reflects "${selectedMeme.caption || selectedMeme.text}"` : `CHARACTER has a profound realization about ${topic}`;
+        break;
+      case "Relatable":
+        hookLine = selectedDialogue ? `CHARACTER admits "${selectedDialogue.text || selectedDialogue.dialogue}"` : `CHARACTER experiences a relatable moment about ${topic}`;
+        contextLine = selectedTrend ? `EVERYDAY: ${selectedTrend.headline || selectedTrend.text}` : `CHARACTER navigates daily life with ${topic}`;
+        punchlineLine = selectedMeme ? `CHARACTER共鸣s with "${selectedMeme.caption || selectedMeme.text}"` : `CHARACTER finds common ground with others about ${topic}`;
+        break;
+      case "Educational":
+        hookLine = selectedDialogue ? `CHARACTER explains "${selectedDialogue.text || selectedDialogue.dialogue}"` : `CHARACTER shares knowledge about ${topic}`;
+        contextLine = selectedTrend ? `LEARNING TREND: ${selectedTrend.headline || selectedTrend.text}` : `CHARACTER demonstrates educational content about ${topic}`;
+        punchlineLine = selectedMeme ? `CHARACTER illustrates "${selectedMeme.caption || selectedMeme.text}"` : `CHARACTER provides a key takeaway about ${topic}`;
         break;
       default:
         hookLine = selectedDialogue ? `CHARACTER says "${selectedDialogue.text || selectedDialogue.dialogue}"` : `CHARACTER starts talking about ${topic}`;
@@ -935,6 +954,24 @@ FADE OUT.`;
   };
 }
 
+/**
+ * Generate screenplay with strong structure
+ * @param {string} userPrompt - user entered prompt (eg: "reel script for girl bestie")
+ * @param {string} genre - selected genre (Comedy, Cinematic, Romantic, etc.)
+ * @returns {Promise<string>} Celtx screenplay text
+ */
+// REMOVED DUPLICATE FUNCTION TO FIX "Identifier 'generateScript' has already been declared" ERROR
+// The functionality is already implemented in the generateScript function at line 142
+
+/**
+ * Generate screenplay with strong structure (new sharper version)
+ * @param {string} userPrompt - user entered prompt (eg: "reel script for girl bestie")
+ * @param {string} genre - selected genre (Comedy, Cinematic, Romantic, etc.)
+ * @returns {Promise<string>} Celtx screenplay text
+ */
+// REMOVED DUPLICATE FUNCTION TO FIX "Identifier 'generateScript' has already been declared" ERROR
+// The functionality is already implemented in the generateScript function at line 959
+
 // Updated generateWithAI function with robust error handling
 export async function generateWithAI(prompt) {
   try {
@@ -983,13 +1020,13 @@ export async function generateScriptWithRelevance(topic, dialogues, memes, trend
   try {
     console.log("🤖 Generating script with relevance for topic:", topic, "and genre:", genre);
 
-    // 1️⃣ Find top relevant items using Fuse.js
+    // 1️⃣ Find top relevant items using Fuse.js with genre awareness
     // Import the relevance utility function
     const { findRelevantItems } = await import("../utils/relevance");
 
-    const relevantDialogues = findRelevantItems(topic, dialogues, "dialogue", 1); // max 1 for controlled creativity
-    const relevantMemes = findRelevantItems(topic, memes, "meme", 1);         // max 1
-    const relevantTrends = findRelevantItems(topic, trends, "trend", 1);       // max 1
+    const relevantDialogues = findRelevantItems(topic, dialogues, "dialogue", 1, genre); // max 1 for controlled creativity
+    const relevantMemes = findRelevantItems(topic, memes, "meme", 1, genre);         // max 1
+    const relevantTrends = findRelevantItems(topic, trends, "trend", 1, genre);       // max 1
 
     // Find the most relevant item to use as punchline suggestion
     const allItems = [...relevantDialogues, ...relevantMemes, ...relevantTrends];
@@ -1003,19 +1040,20 @@ export async function generateScriptWithRelevance(topic, dialogues, memes, trend
 
     console.log("🎯 Relevant items:", { relevantDialogues, relevantMemes, relevantTrends, punchlineSuggestion });
 
-    // 2️⃣ Build strict screenplay-only prompt with only relevant items
+    // 2️⃣ Build strict screenplay-only prompt with only relevant items and genre awareness
     let prompt = `
 You are a Telugu-English Celtx screenplay writer for Instagram reels.  
 Your job is to generate a short screenplay (20–30s) based strictly on the TOPIC and GENRE.
 
 RULES:
-1. Use **exactly one dialogue** from the provided DATASET (don't use more than one).  
-2. Do not list multiple dataset items; just pick one that fits naturally.  
+1. Use **exactly one dialogue/meme/trend** from the provided DATASET (don't use more than one).  
+2. Do not list multiple dataset items; just pick the most relevant one that fits naturally.  
 3. Build a **proper HOOK** in the first 5 seconds that makes it Instagram-viral (relatable, funny, emotional, or shocking depending on GENRE).  
 4. Context must develop the situation. Punchline should land hard. Caption should be short, Gen-Z, Telugu-English mix.  
 5. Use Celtx screenplay structure only. No JSON.
 6. Include proper scene descriptions, character actions, and timing.
 7. If a PUNCHLINE SUGGESTION is provided, consider using it as the punchline as it's highly relevant to the topic.
+8. Stick to the requested GENRE: ${genre}.
 
 GENRE: ${genre}
 TOPIC: "${topic}"
@@ -1027,8 +1065,8 @@ TOPIC: "${topic}"
     }
 
     // Add datasets to prompt only if they contain items
-    if (relevantDialogues.length > 0) {
-      prompt += `DATASET (choose 1 dialogue ONLY):\n${JSON.stringify(relevantDialogues, null, 2)}\n`;
+    if (relevantDialogues.length > 0 || relevantMemes.length > 0 || relevantTrends.length > 0) {
+      prompt += `DATASET (choose 1 item ONLY):\n${JSON.stringify([...relevantDialogues, ...relevantMemes, ...relevantTrends], null, 2)}\n`;
     }
 
     prompt += `

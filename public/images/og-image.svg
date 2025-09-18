@@ -1,0 +1,21 @@
+<svg width="1200" height="630" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="630" fill="#0d0d0d"/>
+  <rect x="0" y="0" width="1200" height="630" fill="url(#gradient)"/>
+  
+  <defs>
+    <radialGradient id="gradient" cx="20%" cy="-10%" r="100%">
+      <stop offset="0%" stop-color="rgba(45,212,191,0.25)"/>
+      <stop offset="100%" stop-color="transparent"/>
+    </radialGradient>
+  </defs>
+  
+  <text x="50%" y="50%" text-anchor="middle" fill="#00ff99" font-family="'JetBrains Mono', monospace" font-size="48" font-weight="600">
+    Telugu Context Builder
+  </text>
+  
+  <text x="50%" y="60%" text-anchor="middle" fill="#00ff99" font-family="'JetBrains Mono', monospace" font-size="24">
+    AI-powered Telugu-English Reel Script Generator
+  </text>
+  
+  <circle cx="100" cy="100" r="50" fill="rgba(59,130,246,0.15)"/>
+</svg>
