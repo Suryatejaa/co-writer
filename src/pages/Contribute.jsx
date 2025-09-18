@@ -6,7 +6,7 @@ import Select from '../components/ui/Select';
 import '../Contribute.css';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
-
+import Header from '../components/Header';
 
 const Contribute = () => {
     const [formData, setFormData] = useState({
@@ -73,87 +73,90 @@ const Contribute = () => {
     };
 
     return (
-        <div className="contribute-container">
-            <h1>Contribute Data</h1>
-            <p>Help us improve our AI by adding dialogues, memes, or trends.</p>
+        <div>
+            <Header />
+            <div className="contribute-container">
+                <h1>Contribute Data</h1>
+                <p>Help us improve our AI by adding dialogues, memes, or trends.</p>
 
-            <div className="quick-tip">
-                <p><strong>Quick tip:</strong></p>
-                <pre>{`type: "dialogue"
+                <div className="quick-tip">
+                    <p><strong>Quick tip:</strong></p>
+                    <pre>{`type: "dialogue"
 dialogue: "sai raam"
 situation: "when achieved something by lot of hard work"
 tags: "motivation, celebration"`}</pre>
+                </div>
+
+                <form onSubmit={handleSubmit} className="contribute-form">
+                    <div className="form-group">
+                        <label htmlFor="type" className="form-label">Type *</label>
+                        <Select
+                            id="type"
+                            name="type"
+                            value={formData.type}
+                            onChange={handleChange}
+                            options={[
+                                { value: 'dialogue', label: 'Dialogue' },
+                                { value: 'meme', label: 'Meme' },
+                                { value: 'trend', label: 'Trend' }
+                            ]}
+                        />
+                    </div>
+
+                    <div className="form-group">
+                        <label htmlFor="content" className="form-label">Content *</label>
+                        <Input
+                            id="content"
+                            name="content"
+                            value={formData.content}
+                            onChange={handleChange}
+                            placeholder="Enter dialogue/meme/trend..."
+                            required
+                            className="w-full"
+                        />
+                    </div>
+
+                    <div className="form-group">
+                        <label htmlFor="situation" className="form-label">Situation/Context *</label>
+                        <Input
+                            id="situation"
+                            name="situation"
+                            value={formData.situation}
+                            onChange={handleChange}
+                            placeholder="When/where this is used..."
+                            required
+                            className="w-full"
+                        />
+                    </div>
+
+                    <div className="form-group">
+                        <label htmlFor="tags" className="form-label">Tags (comma-separated)</label>
+                        <Input
+                            id="tags"
+                            name="tags"
+                            value={formData.tags}
+                            onChange={handleChange}
+                            placeholder="e.g., funny, romantic, reaction"
+                            className="w-full"
+                        />
+                    </div>
+
+                    <Button
+                        type="submit"
+                        className="form-button"
+                        variant="primary"
+                        size="md"
+                    >
+                        Save Contribution
+                    </Button>
+                </form>
+
+                {successMessage && (
+                    <div className="form-success-message">
+                        <span>✓</span> {successMessage}
+                    </div>
+                )}
             </div>
-
-            <form onSubmit={handleSubmit} className="contribute-form">
-                <div className="form-group">
-                    <label htmlFor="type" className="form-label">Type *</label>
-                    <Select
-                        id="type"
-                        name="type"
-                        value={formData.type}
-                        onChange={handleChange}
-                        options={[
-                            { value: 'dialogue', label: 'Dialogue' },
-                            { value: 'meme', label: 'Meme' },
-                            { value: 'trend', label: 'Trend' }
-                        ]}
-                    />
-                </div>
-
-                <div className="form-group">
-                    <label htmlFor="content" className="form-label">Content *</label>
-                    <Input
-                        id="content"
-                        name="content"
-                        value={formData.content}
-                        onChange={handleChange}
-                        placeholder="Enter dialogue/meme/trend..."
-                        required
-                        className="w-full"
-                    />
-                </div>
-
-                <div className="form-group">
-                    <label htmlFor="situation" className="form-label">Situation/Context *</label>
-                    <Input
-                        id="situation"
-                        name="situation"
-                        value={formData.situation}
-                        onChange={handleChange}
-                        placeholder="When/where this is used..."
-                        required
-                        className="w-full"
-                    />
-                </div>
-
-                <div className="form-group">
-                    <label htmlFor="tags" className="form-label">Tags (comma-separated)</label>
-                    <Input
-                        id="tags"
-                        name="tags"
-                        value={formData.tags}
-                        onChange={handleChange}
-                        placeholder="e.g., funny, romantic, reaction"
-                        className="w-full"
-                    />
-                </div>
-
-                <Button
-                    type="submit"
-                    className="form-button"
-                    variant="primary"
-                    size="md"
-                >
-                    Save Contribution
-                </Button>
-            </form>
-
-            {successMessage && (
-                <div className="form-success-message">
-                    <span>✓</span> {successMessage}
-                </div>
-            )}
         </div>
     );
 };
