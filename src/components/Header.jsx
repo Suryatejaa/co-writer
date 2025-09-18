@@ -14,7 +14,6 @@ const Header = () => {
     const navLinks = [
         { name: 'Home', to: '/' },
         { name: 'Contribute', to: '/contribute' },
-        { name: 'Admin', to: '/admin' },
     ];
 
     const menuVariants = {
@@ -45,7 +44,7 @@ const Header = () => {
                 >
                     <Link
                         to="/"
-                        className="text-2xl font-bold text-white hover:text-white/80 transition drop-shadow-md"
+                        className="text-2xl font-bold text-black hover:text-grey/800 transition drop-shadow-md"
                     >
                         🎬 ReelScript AI
                     </Link>
@@ -64,7 +63,7 @@ const Header = () => {
                             >
                                 <Link
                                     to={link.to}
-                                    className="text-white hover:text-white/80 transition font-medium text-lg"
+                                    className="text-black hover:text-white/80 transition font-medium text-lg"
                                 >
                                     {link.name}
                                 </Link>

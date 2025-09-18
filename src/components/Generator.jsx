@@ -4,7 +4,6 @@ import { motion } from "framer-motion";
 import { getOrGenerateBatchScripts, convertToCeltxFormat, testApiKey } from "../services/aiService";
 import { db, analytics, withFirestoreErrorHandling } from "../firebase";
 import { doc, getDoc, setDoc, increment, collection, query, where, getDocs } from "firebase/firestore";
-import { logEvent } from "firebase/analytics";
 // Fallback data imports
 import defaultDialogues from "../../public/data/dialogues.json";
 import defaultMemes from "../../public/data/memes.json";
@@ -13,13 +12,18 @@ import defaultTrends from "../../public/data/trends.json";
 import { findRelevantItems } from "../utils/relevance";
 import Input from "./ui/Input";
 import Button from "./ui/Button";
-
+import Select from "./ui/Select";
+// Import the new ReelLoader component
+import ReelLoader from "./ReelLoader";
+// Import the new PunchlineSuggestions component
+import PunchlineSuggestions from "./PunchlineSuggestions";
 
 // Cache to store generated script batches
 const scriptCache = [];
 
 export default function Generator() {
   const [topic, setTopic] = useState("");
+  const [genre, setGenre] = useState("Comedy"); // Add genre state
   const [scripts, setScripts] = useState([]); // batch scripts
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isGenerated, setIsGenerated] = useState(false);
@@ -293,7 +297,7 @@ export default function Generator() {
       return;
     }
 
-    console.log("🔄 handleGenerate called with topic:", topic);
+    console.log("🔄 handleGenerate called with topic:", topic, "and genre:", genre);
     console.log("🔍 Datasets being used:", {
       dialoguesLength: datasets.dialogues?.length,
       memesLength: datasets.memes?.length,
@@ -317,7 +321,7 @@ export default function Generator() {
     try {
       if (!isGenerated) {
         // First time → API call with caching
-        console.log("🚀 Generating new batch for topic:", topic);
+        console.log("🚀 Generating new batch for topic:", topic, "with genre:", genre);
 
         // Use relevance matching to find relevant items
         const relevantDialogues = findRelevantItems(topic, datasets.dialogues, "dialogue", 2);
@@ -326,45 +330,35 @@ export default function Generator() {
 
         console.log("🔍 Relevant items found:", { relevantDialogues, relevantMemes, relevantTrends });
 
+        // Pass genre to the generation function
         const batch = await getOrGenerateBatchScripts(
           topic,
           relevantDialogues,
           relevantMemes,
-          relevantTrends
+          relevantTrends,
+          genre // Pass genre
         );
 
         console.log("📦 Received batch:", batch); // Debug batch content
 
         if (batch.length > 0) {
-          // Ensure each script in the batch has the required fields
-          const validatedBatch = batch.map(script => ({
-            hook: script.hook || "No hook generated",
-            context: script.context || "No context generated",
-            punchline: script.punchline || "No punchline generated",
-            caption: script.caption || "No caption generated",
-            usedDataset: script.usedDataset !== undefined ? script.usedDataset : false
-          }));
-
-          console.log("✅ Validated batch:", validatedBatch); // Debug validated batch
-
-          setScripts(validatedBatch);
+          // For screenplay format, we don't need to validate individual fields
+          // Just set the batch directly
+          setScripts(batch);
           setCurrentIndex(0);
-          setScript(validatedBatch[0]);
+          setScript(batch[0]);
           setIsGenerated(true);
 
-          console.log("🔄 State updated - Scripts:", validatedBatch); // Debug state update
-          console.log("🔄 State updated - Current script:", validatedBatch[0]); // Debug current script
+          console.log("🔄 State updated - Scripts:", batch); // Debug state update
+          console.log("🔄 State updated - Current script:", batch[0]); // Debug current script
           console.log("🔄 State updated - isGenerated:", true); // Debug isGenerated state
 
           // Update analytics
-          await updateAnalytics(topic, useAI ? 'ai' : 'rule', validatedBatch[0]);
+          await updateAnalytics(topic, useAI ? 'ai' : 'rule', batch[0]);
         } else {
           // Handle error case
           const errorScript = {
-            hook: "Error generating script. Please try again.",
-            context: "There was a technical issue.",
-            punchline: "System error occurred.",
-            caption: "Oops! Something went wrong 😔",
+            screenplay: "Error generating script. Please try again.\nThere was a technical issue.\nSystem error occurred.",
             error: "generation_failed"
           };
           setScript(errorScript);
@@ -393,43 +387,33 @@ export default function Generator() {
 
           console.log("🔍 Relevant items found:", { relevantDialogues, relevantMemes, relevantTrends });
 
+          // Pass genre to the generation function
           const batch = await getOrGenerateBatchScripts(
             topic,
             relevantDialogues,
             relevantMemes,
-            relevantTrends
+            relevantTrends,
+            genre // Pass genre
           );
 
           console.log("📦 Received new batch:", batch); // Debug new batch content
 
           if (batch.length > 0) {
-            // Ensure each script in the batch has the required fields
-            const validatedBatch = batch.map(script => ({
-              hook: script.hook || "No hook generated",
-              context: script.context || "No context generated",
-              punchline: script.punchline || "No punchline generated",
-              caption: script.caption || "No caption generated",
-              usedDataset: script.usedDataset !== undefined ? script.usedDataset : false
-            }));
-
-            console.log("✅ Validated new batch:", validatedBatch); // Debug validated new batch
-
-            setScripts(validatedBatch);
+            // For screenplay format, we don't need to validate individual fields
+            // Just set the batch directly
+            setScripts(batch);
             setCurrentIndex(0);
-            setScript(validatedBatch[0]);
+            setScript(batch[0]);
 
-            console.log("🔄 New state updated - Scripts:", validatedBatch); // Debug new state update
-            console.log("🔄 New state updated - Current script:", validatedBatch[0]); // Debug new current script
+            console.log("🔄 New state updated - Scripts:", batch); // Debug new state update
+            console.log("🔄 New state updated - Current script:", batch[0]); // Debug new current script
 
             // Update analytics
-            await updateAnalytics(topic, useAI ? 'ai' : 'rule', validatedBatch[0]);
+            await updateAnalytics(topic, useAI ? 'ai' : 'rule', batch[0]);
           } else {
             // Handle error case
             const errorScript = {
-              hook: "Error generating script. Please try again.",
-              context: "There was a technical issue.",
-              punchline: "System error occurred.",
-              caption: "Oops! Something went wrong 😔",
+              screenplay: "Error generating script. Please try again.\nThere was a technical issue.\nSystem error occurred.",
               error: "generation_failed"
             };
             setScript(errorScript);
@@ -440,10 +424,7 @@ export default function Generator() {
     } catch (error) {
       console.error("Error generating script:", error);
       const errorScript = {
-        hook: "Error generating script. Please try again.",
-        context: "There was a technical issue.",
-        punchline: "System error occurred.",
-        caption: "Oops! Something went wrong 😔",
+        screenplay: "Error generating script. Please try again.\nThere was a technical issue.\nSystem error occurred.",
         error: "generation_failed"
       };
       setScript(errorScript);
@@ -452,6 +433,85 @@ export default function Generator() {
     setLoading(false);
     console.log("🔄 handleGenerate finished. Loading state:", false);
   };
+
+  // Function to handle using a punchline suggestion
+  const handleUseSuggestion = async (suggestion) => {
+    console.log("🔄 Using punchline suggestion:", suggestion);
+
+    // Set the topic to be related to the suggestion
+    const newTopic = suggestion.situation || suggestion.text || topic;
+    setTopic(newTopic);
+
+    // Trigger generation with the new topic
+    setLoading(true);
+
+    try {
+      // Use relevance matching to find relevant items
+      const relevantDialogues = findRelevantItems(newTopic, datasets.dialogues, "dialogue", 2);
+      const relevantMemes = findRelevantItems(newTopic, datasets.memes, "meme", 1);
+      const relevantTrends = findRelevantItems(newTopic, datasets.trends, "trend", 1);
+
+      console.log("🔍 Relevant items found for suggestion:", { relevantDialogues, relevantMemes, relevantTrends });
+
+      // Pass genre to the generation function
+      const batch = await getOrGenerateBatchScripts(
+        newTopic,
+        relevantDialogues,
+        relevantMemes,
+        relevantTrends,
+        genre // Pass genre
+      );
+
+      console.log("📦 Received batch for suggestion:", batch);
+
+      if (batch.length > 0) {
+        setScripts(batch);
+        setCurrentIndex(0);
+        setScript(batch[0]);
+        setIsGenerated(true);
+
+        // Update analytics
+        await updateAnalytics(newTopic, useAI ? 'ai' : 'rule', batch[0]);
+      } else {
+        const errorScript = {
+          screenplay: "Error generating script. Please try again.\nThere was a technical issue.\nSystem error occurred.",
+          error: "generation_failed"
+        };
+        setScript(errorScript);
+      }
+    } catch (error) {
+      console.error("Error generating script with suggestion:", error);
+      const errorScript = {
+        screenplay: "Error generating script. Please try again.\nThere was a technical issue.\nSystem error occurred.",
+        error: "generation_failed"
+      };
+      setScript(errorScript);
+    }
+
+    setLoading(false);
+  };
+
+  // Extract punchline suggestions from the current batch
+  const extractPunchlineSuggestions = () => {
+    if (!scripts || scripts.length === 0) return [];
+
+    const suggestions = [];
+    const seenIds = new Set();
+
+    scripts.forEach(script => {
+      if (script.punchlineSuggestion && script.punchlineSuggestion.id) {
+        // Avoid duplicates
+        if (!seenIds.has(script.punchlineSuggestion.id)) {
+          suggestions.push(script.punchlineSuggestion);
+          seenIds.add(script.punchlineSuggestion.id);
+        }
+      }
+    });
+
+    return suggestions;
+  };
+
+  const punchlineSuggestions = extractPunchlineSuggestions();
 
   const toggleAI = async () => {
     const newValue = !useAI;
@@ -513,7 +573,28 @@ export default function Generator() {
             onChange={handleTopicChange}
             placeholder="Enter topic..."
             required
-            className="w-full"
+            className="w-full text-black"
+          />
+        </div>
+
+        {/* Add Genre Selection */}
+        <div className="form-group">
+          <label htmlFor="genre" className="form-label">Genre *</label>
+          <Select
+            id="genre"
+            name="genre"
+            value={genre}
+            onChange={(e) => setGenre(e.target.value)}
+            options={[
+              { value: 'Comedy', label: 'Comedy' },
+              { value: 'Cinematic', label: 'Cinematic' },
+              { value: 'Romantic', label: 'Romantic' },
+              { value: 'Savage', label: 'Savage' },
+              { value: 'Dramatic', label: 'Dramatic' },
+              { value: 'Relatable', label: 'Relatable' },
+              { value: 'Educational', label: 'Educational' }
+            ]}
+            className="w-full text-black"
           />
         </div>
 
@@ -527,129 +608,170 @@ export default function Generator() {
           >
             {loading ? "Generating..." : (isGenerated ? "Re-generate" : "Generate")}
           </Button>
-          <Button
+          {/* <Button
             onClick={toggleAI}
             className="form-button"
             variant="secondary"
             size="md"
           >
             {useAI ? "AI" : "RULE"}
-          </Button>
+          </Button> */}
         </div>
       </motion.div>
 
       {/* Script Output - Mobile optimized with glass-card panels */}
-      {(script || isGenerated) && (
+      {(script || isGenerated || loading) && (
         <motion.div
           className="contribute-form"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2, duration: 0.4 }}
         >
-          {console.log("🔄 Rendering script output. Script:", script, "isGenerated:", isGenerated)}
-          {script && script.error && (
-            <div className="form-success-message">
-              ⚠ {script.error}
-            </div>
+          {console.log("🔄 Rendering script output. Script:", script, "isGenerated:", isGenerated, "loading:", loading)}
+
+          {/* Show loader when loading */}
+          {loading && (
+            <ReelLoader genre={genre.toLowerCase()} />
           )}
 
-          <h3 className="text-lg font-semibold text-gray-800 border-b border-white/30 pb-2">
-            ▶ Generated Telugu Script
-          </h3>
+          {/* Show error or script when not loading */}
+          {!loading && (
+            <>
+              {script && script.error && (
+                <div className="form-success-message">
+                  ⚠ {script.error}
+                </div>
+              )}
 
-          {/* Show message if script is null but isGenerated is true */}
-          {!script && isGenerated && (
-            <div className="form-success-message">
-              ⚠ Script data not available. Please try generating again.
-            </div>
-          )}
+              <h3 className="text-lg font-semibold text-gray-800 border-b border-white/30 pb-2">
+                ▶ Generated Telugu Script
+              </h3>
 
-          {/* Dataset Usage Indicator */}
-          {script && "usedDataset" in script && (
-            <div className="form-success-message">
-              {script.usedDataset ? "✓ DATASET" : "· AI GEN"}
-            </div>
-          )}
+              {/* Show message if script is null but isGenerated is true */}
+              {!script && isGenerated && (
+                <div className="form-success-message">
+                  ⚠ Script data not available. Please try generating again.
+                </div>
+              )}
 
-          {/* Hook Section - Glass card panel */}
-          <div className="form-group">
-            <label className="form-label">• Hook</label>
-            <div className="form-control">
-              {script ? (script.hook || "No hook generated") : "Loading..."}
-            </div>
-          </div>
+              {/* Dataset Usage Indicator */}
+              {script && "usedDataset" in script && (
+                <div className="form-success-message">
+                  {script.usedDataset ? "✓ DATASET" : "· AI GEN"}
+                </div>
+              )}
 
-          {/* Context Section - Glass card panel */}
-          <div className="form-group">
-            <label className="form-label">• Context</label>
-            <div className="form-control">
-              {script ? (script.context || "No context generated") : "Loading..."}
-            </div>
-          </div>
+              {/* Display screenplay format if available */}
+              {script && script.screenplay ? (
+                <div className="form-group">
+                  <label className="form-label">• Screenplay</label>
+                  <div className="form-control whitespace-pre-wrap font-mono text-sm">
+                    {script.screenplay}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* Hook Section - Glass card panel */}
+                  <div className="form-group">
+                    <label className="form-label">• Hook</label>
+                    <div className="form-control">
+                      {script ? (script.hook || "No hook generated") : "Loading..."}
+                    </div>
+                  </div>
 
-          {/* Punchline Section - Glass card panel */}
-          <div className="form-group">
-            <label className="form-label">• Punchline</label>
-            <div className="form-control">
-              {script ? (script.punchline || "No punchline generated") : "Loading..."}
-            </div>
-          </div>
+                  {/* Context Section - Glass card panel */}
+                  <div className="form-group">
+                    <label className="form-label">• Context</label>
+                    <div className="form-control">
+                      {script ? (script.context || "No context generated") : "Loading..."}
+                    </div>
+                  </div>
 
-          {/* Instagram Caption Section - Glass card panel */}
-          <div className="form-group">
-            <label className="form-label">• Caption</label>
-            <div className="form-control">
-              {script ? (script.caption || "No caption generated") : "Loading..."}
-            </div>
-          </div>
+                  {/* Punchline Section - Glass card panel */}
+                  <div className="form-group">
+                    <label className="form-label">• Punchline</label>
+                    <div className="form-control">
+                      {script ? (script.punchline || "No punchline generated") : "Loading..."}
+                    </div>
+                  </div>
 
-          {/* Copy Button with neon hover effect */}
-          <Button
-            onClick={() => {
-              const fullScript = `Hook: ${script.hook}
+                  {/* Instagram Caption Section - Glass card panel */}
+                  <div className="form-group">
+                    <label className="form-label">• Caption</label>
+                    <div className="form-control">
+                      {script ? (script.caption || "No caption generated") : "Loading..."}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Copy Button with neon hover effect */}
+              <Button
+                onClick={() => {
+                  let fullScript = '';
+                  if (script.screenplay) {
+                    fullScript = script.screenplay;
+                  } else {
+                    fullScript = `Hook: ${script.hook}
 
 Context: ${script.context}
 
 Punchline: ${script.punchline}
 
 Caption: ${script.caption}`;
-              navigator.clipboard.writeText(fullScript);
-              alert('Script copied to clipboard!');
-            }}
-            className="form-button"
-            variant="primary"
-            size="md"
-          >
-            ⧉ Copy Script
-          </Button>
+                  }
+                  navigator.clipboard.writeText(fullScript);
+                  alert('Script copied to clipboard!');
+                }}
+                className="form-button"
+                variant="primary"
+                size="md"
+              >
+                ⧉ Copy Script
+              </Button>
 
-          {/* Export to Celtx Button with neon hover effect */}
-          <Button
-            onClick={() => {
-              const celtxScript = convertToCeltxFormat(script);
-              const blob = new Blob([celtxScript], { type: 'text/plain' });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = `telugu-reel-${topic.replace(/[^a-z0-9]/gi, '_').toLowerCase()}-${new Date().toISOString().slice(0, 10)}.celtx`;
-              document.body.appendChild(a);
-              a.click();
-              document.body.removeChild(a);
-              URL.revokeObjectURL(url);
-              alert('Celtx format script downloaded!');
-            }}
-            className="form-button"
-            variant="secondary"
-            size="md"
-          >
-            ⬇ Export Celtx Format
-          </Button>
+              {/* Export to Celtx Button with neon hover effect */}
+              <Button
+                onClick={() => {
+                  let celtxScript = '';
+                  if (script.screenplay) {
+                    celtxScript = script.screenplay;
+                  } else {
+                    celtxScript = convertToCeltxFormat(script);
+                  }
+                  const blob = new Blob([celtxScript], { type: 'text/plain' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `telugu-reel-${topic.replace(/[^a-z0-9]/gi, '_').toLowerCase()}-${new Date().toISOString().slice(0, 10)}.celtx`;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(url);
+                  alert('Celtx format script downloaded!');
+                }}
+                className="form-button"
+                variant="secondary"
+                size="md"
+              >
+                ⬇ Export Celtx Format
+              </Button>
+            </>
+          )}
         </motion.div>
+      )}
+
+      {/* Display punchline suggestions if available */}
+      {punchlineSuggestions.length > 0 && (
+        <PunchlineSuggestions
+          suggestions={punchlineSuggestions}
+          onUseSuggestion={handleUseSuggestion}
+        />
       )}
 
       {/* Info Panel - Mobile optimized with glass-card styling */}
       <motion.div
-        className="contribute-form"
+        className="contribute-form mt-2"
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.3, duration: 0.3 }}
@@ -659,9 +781,8 @@ Caption: ${script.caption}`;
         </div>
 
         <div className="grid gap-1 text-xs text-gray-600">
-          <div>• JSON output enforced</div>
-          <div>• 4-section validation</div>
-          <div>• Dataset content only</div>
+          <div>• Celtx screenplay format</div>
+          <div>• Dataset content integration</div>
           <div>• Max 2 dialogues, 1 meme, 1 trend</div>
           <div>• Actor style preserved</div>
           <div>• PG-13 Telugu-English humor</div>

@@ -145,52 +145,16 @@ export const generateScript = async (topic, dialogues, memes, trends) => {
     throw new Error('Missing required data: topic, dialogues, memes, or trends');
   }
 
-  // 🎲 Shuffle arrays to randomize selection
-  const shuffleArray = (array) => {
-    const shuffled = [...array];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-    return shuffled;
-  };
+  // 🎯 Use Fuse.js to find relevant items instead of custom selection logic
+  const { findRelevantItems } = await import("../utils/relevance");
 
-  // Simple keyword extraction (you can upgrade later with nano LLM)
-  const extractKeywords = (topic) => {
-    return topic.toLowerCase().split(/\s+/); // split by spaces
-  };
-
-  // Match score = count of overlapping keywords
-  const matchScore = (topicKeywords, item) => {
-    const itemKeywords = (item.relevance || []).map(k => k.toLowerCase());
-    return topicKeywords.filter(k => itemKeywords.includes(k)).length;
-  };
-
-  // Smart selector
-  const selectRelevantItems = (dataset, topic, max = 2) => {
-    const keywords = extractKeywords(topic);
-
-    // Rank items by score
-    const ranked = dataset
-      .map(item => ({ ...item, score: matchScore(keywords, item) }))
-      .sort((a, b) => b.score - a.score);
-
-    // If no relevant, fallback to random shuffle
-    if (ranked[0].score === 0) {
-      return shuffleArray(dataset).slice(0, max);
-    }
-
-    return ranked.slice(0, max);
-  };
-
-  // 🎯 Select relevant data instead of random shuffle
-  const selectedDialogues = selectRelevantItems(dialogues, topic, 2);
-  const selectedMemes = selectRelevantItems(memes, topic, 1);
-  const selectedTrends = selectRelevantItems(trends, topic, 1);
+  // Find top relevant items using Fuse.js
+  const selectedDialogues = findRelevantItems(topic, dialogues, "dialogue", 2);
+  const selectedMemes = findRelevantItems(topic, memes, "meme", 1);
+  const selectedTrends = findRelevantItems(topic, trends, "trend", 1);
 
   console.log("Selected items:", selectedDialogues, selectedMemes, selectedTrends);
   console.log('Topic:', topic);
-
 
   // 🔥 Upgraded prompt with strict topic grounding and dataset intelligence
   const prompt = `Your task is to generate a short Gen-Z Telugu-friendly script for a reel or sketch centered strictly on the given TOPIC, following these explicit requirements:
@@ -287,68 +251,19 @@ Stay strictly on-topic, use the dataset only if relevant (and only as specified)
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       const res = await client.chat.completions.create({
-        model: "gpt-5-nano",
+        model: "gpt-5-nano", // cheap & good
         messages: [{ role: "user", content: prompt }],
-        response_format: { type: "json_object" }, // 🔑 Key OpenAI feature for reliable JSON output
+        response_format: { type: "json_object" }, // ✅ guarantees JSON output
       });
 
-      console.log("AI raw response:", res);
-
-      // 🔥 Extract and log token usage from API response
+      // 🔥 Log token usage
       const usageInfo = res.usage || { prompt_tokens: 0, completion_tokens: 0 };
-      const updatedUsage = logUsage(usageInfo.prompt_tokens, usageInfo.completion_tokens);
+      logUsage(usageInfo.prompt_tokens, usageInfo.completion_tokens);
 
-      console.log(`📊 Tokens used: ${usageInfo.prompt_tokens} input + ${usageInfo.completion_tokens} output = ${usageInfo.prompt_tokens + usageInfo.completion_tokens} total`);
-      console.log(`💰 Session cost: $${updatedUsage.estimatedCost.toFixed(6)}`);
-
-      // Parse the JSON response
       const scriptJson = JSON.parse(res.choices[0].message.content);
-
-      // 🛡️ Validate JSON structure with new usedDataset field
-      const requiredFields = ['hook', 'context', 'punchline', 'caption'];
-      const missingFields = requiredFields.filter(field => !scriptJson[field]);
-
-      if (missingFields.length > 0) {
-        throw new Error(`AI output missing required fields: ${missingFields.join(', ')}`);
-      }
-
-      // Add usedDataset flag if missing (backward compatibility)
-      if (typeof scriptJson.usedDataset !== 'boolean') {
-        scriptJson.usedDataset = false; // Default fallback
-      }
-
-      console.log(`🎯 Dataset usage: ${scriptJson.usedDataset ? 'Used dataset content' : 'Generated fresh content'}`);
-
       return scriptJson;
-
     } catch (error) {
-      console.error(`Attempt ${attempt + 1} failed:`, error);
-
-      // If this is the last attempt, handle the error
-      if (attempt === maxRetries - 1) {
-        // 🚪 Enhanced error handling for different scenarios
-        if (error.status === 429) {
-          // Rate limit or quota exceeded
-          return {
-            hook: "OpenAI API rate limit reached. Using rule-based generation.",
-            context: "Your API key has hit the usage limit. Check billing or wait for reset.",
-            punchline: "Don't worry - rule-based generation works great too!",
-            caption: "Rate limit reached 😅 Try again later! #RateLimited",
-            usedDataset: false,
-            error: "rate_limit"
-          };
-        }
-
-        // Return a structured error object that maintains the same schema
-        return {
-          hook: "Error generating script. Please try again.",
-          context: "Technical issue occurred during script generation.",
-          punchline: "System error - please retry.",
-          caption: "Oops! Something went wrong 😔 Try again!",
-          usedDataset: false,
-          error: true
-        };
-      }
+      console.error("Failed to generate script with relevance:", error);
 
       // If we hit a 429 error, wait with exponential backoff before retrying
       if (error.status === 429) {
@@ -526,8 +441,8 @@ CONTEXT: "General Telugu culture, humor, and trending reel style"
  * @param {Array} trends - Array of trends dataset
  * @returns {Array} Array of script objects
  */
-export const generateBatchScripts = async (topic, dialogues, memes, trends) => {
-  console.log("🔍 generateBatchScripts called with:", { topic, dialoguesLength: dialogues?.length, memesLength: memes?.length, trendsLength: trends?.length });
+export const generateBatchScripts = async (topic, dialogues, memes, trends, genre = "Comedy") => {
+  console.log("🔍 generateBatchScripts called with:", { topic, dialoguesLength: dialogues?.length, memesLength: memes?.length, trendsLength: trends?.length, genre });
 
   // Validate input data
   if (!topic || typeof topic !== 'string' || topic.trim().length === 0) {
@@ -535,117 +450,105 @@ export const generateBatchScripts = async (topic, dialogues, memes, trends) => {
     return [];
   }
 
-  if (!Array.isArray(dialogues) || dialogues.length === 0) {
-    console.error("❌ Invalid dialogues:", dialogues);
-    return [];
+  // Note: We no longer validate that arrays must be non-empty because findRelevantItems 
+  // now provides a fallback mechanism that may return empty arrays when no relevant items are found
+  // Instead, we handle empty arrays gracefully in the prompt generation
+
+  // Use relevance matching to find relevant items
+  const { findRelevantItems } = await import("../utils/relevance");
+  const selectedDialogues = findRelevantItems(topic, dialogues, "dialogue", 2);
+  const selectedMemes = findRelevantItems(topic, memes, "meme", 1);
+  const selectedTrends = findRelevantItems(topic, trends, "trend", 1);
+
+  // Find the most relevant item to use as punchline suggestion
+  const allItems = [...selectedDialogues, ...selectedMemes, ...selectedTrends];
+  let punchlineSuggestion = null;
+
+  if (allItems.length > 0) {
+    // Sort by relevance score if available, otherwise use first item
+    const sortedItems = allItems.sort((a, b) => (b.score || 0) - (a.score || 0));
+    punchlineSuggestion = sortedItems[0];
   }
-
-  if (!Array.isArray(memes) || memes.length === 0) {
-    console.error("❌ Invalid memes:", memes);
-    return [];
-  }
-
-  if (!Array.isArray(trends) || trends.length === 0) {
-    console.error("❌ Invalid trends:", trends);
-    return [];
-  }
-
-  // Simple keyword extraction
-  const extractKeywords = (topic) => {
-    return topic.toLowerCase().split(/\s+/); // split by spaces
-  };
-
-  // Match score = count of overlapping keywords
-  const matchScore = (topicKeywords, item) => {
-    const itemKeywords = (item.relevance || []).map(k => k.toLowerCase());
-    return topicKeywords.filter(k => itemKeywords.includes(k)).length;
-  };
-
-  // Smart selector
-  const selectRelevantItems = (dataset, topic, max = 2) => {
-    const keywords = extractKeywords(topic);
-
-    // Rank items by score
-    const ranked = dataset
-      .map(item => ({ ...item, score: matchScore(keywords, item) }))
-      .sort((a, b) => b.score - a.score);
-
-    // If no relevant, fallback to random shuffle
-    if (ranked[0].score === 0) {
-      // Shuffle array
-      const shuffled = [...dataset];
-      for (let i = shuffled.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-      }
-      return shuffled.slice(0, max);
-    }
-
-    return ranked.slice(0, max);
-  };
-
-  // Select relevant data
-  const selectedDialogues = selectRelevantItems(dialogues, topic, 2);
-  const selectedMemes = selectRelevantItems(memes, topic, 1);
-  const selectedTrends = selectRelevantItems(trends, topic, 1);
 
   console.log("🔍 Selected items:", {
     selectedDialogues: selectedDialogues.map(d => d.id),
     selectedMemes: selectedMemes.map(m => m.id),
-    selectedTrends: selectedTrends.map(t => t.id)
+    selectedTrends: selectedTrends.map(t => t.id),
+    punchlineSuggestion: punchlineSuggestion?.id
   });
   console.log("🔍 Selected dialogues details:", selectedDialogues);
   console.log("🔍 Selected memes details:", selectedMemes);
   console.log("🔍 Selected trends details:", selectedTrends);
 
-  const prompt = `
-You are a Telugu reel scriptwriter. Your goal is to generate a short reel script based on a given topic and dataset.
+  // Create a prompt that generates Celtx screenplay format with controlled creativity
+  let prompt = `
+You are a Telugu-English Celtx screenplay writer for Instagram reels.  
+Your job is to generate a short screenplay (20–30s) based strictly on the TOPIC and GENRE.
 
-STRICT RULES:
-1. Use ONLY the dialogues, memes, and trends provided below. Do not invent or paraphrase; use dataset entries as-is.
-2. Use exactly 1-2 dialogues, 1 meme, and 1 trend.
-3. The script MUST be structured into four labeled parts: Hook, Context, Punchline, and Instagram Caption.
-4. The Instagram Caption MUST be 1-2 lines, mix Telugu + English, relatable for a Gen-Z audience.
-5. Do not include any extra explanations outside JSON.
-6. The entire response MUST be a JSON array containing exactly 3 JSON objects.
+RULES:
+1. Use **exactly one dialogue** from the provided DATASET (don't use more than one).  
+2. Do not list multiple dataset items; just pick one that fits naturally.  
+3. Build a **proper HOOK** in the first 5 seconds that makes it Instagram-viral (relatable, funny, emotional, or shocking depending on GENRE).  
+4. Context must develop the situation. Punchline should land hard. Caption should be short, Gen-Z, Telugu-English mix.  
+5. Use Celtx screenplay structure only. No JSON.
+6. Include proper scene descriptions, character actions, and timing.
+7. If a PUNCHLINE SUGGESTION is provided, consider using it as the punchline as it's highly relevant to the topic.
 
-DATASET:
-Dialogues: ${JSON.stringify(selectedDialogues)}
-Memes: ${JSON.stringify(selectedMemes)}
-Trends: ${JSON.stringify(selectedTrends)}
-
+GENRE: ${genre}
 TOPIC: "${topic}"
+`;
 
-Generate exactly 3 different JSON objects (3 separate scripts) in a JSON array.
-Each script must follow this schema:
-[
-  {
-    "hook": "...",
-    "context": "...",
-    "punchline": "...",
-    "caption": "..."
-  },
-  {
-    "hook": "...",
-    "context": "...",
-    "punchline": "...",
-    "caption": "..."
-  },
-  {
-    "hook": "...",
-    "context": "...",
-    "punchline": "...",
-    "caption": "..."
+  // Add punchline suggestion if available
+  if (punchlineSuggestion) {
+    prompt += `PUNCHLINE SUGGESTION (highly relevant to topic): ${JSON.stringify(punchlineSuggestion)}\n\n`;
   }
-]
+
+  // Add datasets to prompt only if they contain items
+  if (selectedDialogues.length > 0) {
+    prompt += `DATASET (choose 1 dialogue ONLY):\n${JSON.stringify(selectedDialogues, null, 2)}\n`;
+  }
+
+  // Add example format that matches the user's request exactly
+  prompt += `
+EXAMPLE OUTPUT:
+TITLE: Paisa Pelliko Reel
+
+FADE IN:
+
+SLUGLINE
+INT. LIVING ROOM – EVENING
+
+HOOK (00:00–00:05)
+RAJU
+"Nuvvoka pani chey"
+
+CONTEXT (00:06–00:15)
+ANU
+"Family family upma thini bathikesthunnara"
+
+MOM
+"Naaa savu nen sastha neekenduku"
+
+PUNCHLINE (00:16–00:25)
+ANU
+"Nuv oka pani chay"
+
+CAPTION (SOCIAL MEDIA)
+"Sibling money fights in 30 seconds with Telugu memes! #TeluguReels #SiblingLove #MoneyTalk"
+
+FADE OUT.
+
+Generate exactly 3 different screenplay variations for the topic "${topic}" with genre "${genre}".
+Each screenplay should be separated by "---" and follow the exact format above.
+Use only one dialogue from the dataset in each screenplay.
 `;
 
   try {
     console.log("🚀 Sending request to OpenAI API...");
+    // Remove response_format to allow plain text output instead of JSON
     const res = await client.chat.completions.create({
       model: "gpt-5-nano",
       messages: [{ role: "user", content: prompt }],
-      response_format: { type: "json_object" },
     });
 
     console.log("✅ Received response from OpenAI API:", res);
@@ -655,53 +558,67 @@ Each script must follow this schema:
     const usageInfo = res.usage || { prompt_tokens: 0, completion_tokens: 0 };
     logUsage(usageInfo.prompt_tokens, usageInfo.completion_tokens);
 
-    // Parse JSON
-    let scripts = [];
-    try {
-      const rawContent = res.choices[0].message.content;
-      console.log(" Raw content type:", typeof rawContent);
-      console.log(" Raw content length:", rawContent.length);
+    // Parse the plain text response into separate screenplays
+    const rawContent = res.choices[0].message.content;
+    console.log(" Raw content type:", typeof rawContent);
+    console.log(" Raw content length:", rawContent.length);
 
-      const parsedContent = JSON.parse(rawContent);
-      console.log(" Parsed content:", parsedContent);
-      console.log(" Parsed content type:", typeof parsedContent);
+    // Split by "---" to get individual screenplays
+    const screenplaySections = rawContent.split('---');
+    console.log("📦 Parsed screenplay sections:", screenplaySections.length);
 
-      scripts = Array.isArray(parsedContent) ? parsedContent : [parsedContent]; // Ensure array
-      console.log("📦 Parsed scripts:", scripts);
-    } catch (err) {
-      console.error("❌ JSON parse failed:", err);
-      console.error(" Raw content:", res.choices[0].message.content);
-      return [];
-    }
+    // Convert each section to a structured format
+    const validatedScripts = screenplaySections
+      .filter(section => section.trim().length > 0)
+      .map((section, index) => {
+        // Log each section for debugging
+        console.log(`📄 Generated screenplay ${index}:`, section);
 
-    // Ensure each script has the required fields and is properly formatted
-    const validatedScripts = scripts.map((script, index) => {
-      // Log each script for debugging
-      console.log(`📄 Generated script ${index}:`, script);
+        // Create a safe punchline suggestion object for Firestore
+        let safePunchlineSuggestion = null;
+        if (punchlineSuggestion) {
+          safePunchlineSuggestion = {
+            id: punchlineSuggestion.id || null,
+            text: punchlineSuggestion.text || punchlineSuggestion.dialogue || punchlineSuggestion.caption || punchlineSuggestion.headline || "",
+            situation: punchlineSuggestion.situation || "",
+            type: punchlineSuggestion.type || "dialogue"
+          };
 
-      // Ensure script is an object
-      if (typeof script !== 'object' || script === null) {
-        console.warn(`⚠️ Generated script ${index} is not an object, creating fallback`);
+          // Remove any undefined values
+          Object.keys(safePunchlineSuggestion).forEach(key => {
+            if (safePunchlineSuggestion[key] === undefined) {
+              safePunchlineSuggestion[key] = null;
+            }
+          });
+        }
+
         return {
-          hook: "No hook generated",
-          context: "No context generated",
-          punchline: "No punchline generated",
-          caption: "No caption generated"
+          screenplay: section.trim(),
+          usedDataset: (selectedDialogues.length > 0 || selectedMemes.length > 0 || selectedTrends.length > 0),
+          punchlineSuggestion: safePunchlineSuggestion
         };
+      });
+
+    // Save to Firestore with safe objects
+    const batchToSave = validatedScripts.map(script => {
+      // Create a Firestore-safe object
+      const firestoreScript = {
+        screenplay: script.screenplay,
+        usedDataset: script.usedDataset
+      };
+
+      // Only add punchlineSuggestion if it exists and is not null
+      if (script.punchlineSuggestion) {
+        firestoreScript.punchlineSuggestion = script.punchlineSuggestion;
       }
 
-      return {
-        hook: typeof script.hook === 'string' ? script.hook : "No hook generated",
-        context: typeof script.context === 'string' ? script.context : "No context generated",
-        punchline: typeof script.punchline === 'string' ? script.punchline : "No punchline generated",
-        caption: typeof script.caption === 'string' ? script.caption : "No caption generated"
-      };
+      return firestoreScript;
     });
 
-    // Save to Firestore
     await addDoc(collection(db, "scripts"), {
       topic,
-      batch: validatedScripts,
+      genre,
+      batch: batchToSave,
       createdAt: Date.now(),
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days later
     });
@@ -725,12 +642,16 @@ Each script must follow this schema:
 };
 
 // ✅ Check Firestore before hitting OpenAI
-export const getOrGenerateBatchScripts = async (topic, dialogues, memes, trends) => {
+export const getOrGenerateBatchScripts = async (topic, dialogues, memes, trends, genre = "Comedy") => {
   try {
-    console.log("🔍 getOrGenerateBatchScripts called with:", { topic, dialoguesLength: dialogues?.length, memesLength: memes?.length, trendsLength: trends?.length });
+    console.log("🔍 getOrGenerateBatchScripts called with:", { topic, dialoguesLength: dialogues?.length, memesLength: memes?.length, trendsLength: trends?.length, genre });
 
-    // 🔎 Query DB for existing batch with same topic
-    const q = query(collection(db, "scripts"), where("topic", "==", topic));
+    // 🔎 Query DB for existing batch with same topic and genre
+    const q = query(
+      collection(db, "scripts"),
+      where("topic", "==", topic),
+      where("genre", "==", genre)
+    );
     const snapshot = await getDocs(q);
 
     if (!snapshot.empty) {
@@ -757,31 +678,43 @@ export const getOrGenerateBatchScripts = async (topic, dialogues, memes, trends)
             if (typeof script !== 'object' || script === null) {
               console.warn(`⚠️ Script ${index} is not an object, creating fallback`);
               return {
-                hook: "No hook generated",
-                context: "No context generated",
-                punchline: "No punchline generated",
-                caption: "No caption generated",
-                usedDataset: false
+                screenplay: "Error generating script. Please try again.\nThere was a technical issue.\nSystem error occurred.",
+                usedDataset: false,
+                punchlineSuggestion: null
               };
             }
 
+            // Create a safe punchline suggestion object
+            let safePunchlineSuggestion = null;
+            if (script.punchlineSuggestion) {
+              safePunchlineSuggestion = {
+                id: script.punchlineSuggestion.id || null,
+                text: script.punchlineSuggestion.text || "",
+                situation: script.punchlineSuggestion.situation || "",
+                type: script.punchlineSuggestion.type || "dialogue"
+              };
+
+              // Remove any undefined values
+              Object.keys(safePunchlineSuggestion).forEach(key => {
+                if (safePunchlineSuggestion[key] === undefined) {
+                  safePunchlineSuggestion[key] = null;
+                }
+              });
+            }
+
             return {
-              hook: typeof script.hook === 'string' ? script.hook : "No hook generated",
-              context: typeof script.context === 'string' ? script.context : "No context generated",
-              punchline: typeof script.punchline === 'string' ? script.punchline : "No punchline generated",
-              caption: typeof script.caption === 'string' ? script.caption : "No caption generated",
-              usedDataset: typeof script.usedDataset === 'boolean' ? script.usedDataset : false
+              screenplay: typeof script.screenplay === 'string' ? script.screenplay : "No screenplay generated",
+              usedDataset: typeof script.usedDataset === 'boolean' ? script.usedDataset : false,
+              punchlineSuggestion: safePunchlineSuggestion
             };
           });
         } else {
           // Handle case where batch is not an array (fallback)
           console.warn("⚠️ Batch is not an array, creating fallback script");
           validatedBatch = [{
-            hook: "No hook generated",
-            context: "No context generated",
-            punchline: "No punchline generated",
-            caption: "No caption generated",
-            usedDataset: false
+            screenplay: "Error generating script. Please try again.\nThere was a technical issue.\nSystem error occurred.",
+            usedDataset: false,
+            punchlineSuggestion: null
           }];
         }
 
@@ -792,13 +725,28 @@ export const getOrGenerateBatchScripts = async (topic, dialogues, memes, trends)
 
     // ❌ No batch found or expired → generate new
     console.log("📝 No existing batch. Calling OpenAI...");
-    console.log("📤 Calling generateBatchScripts with:", { topic, dialoguesLength: dialogues?.length, memesLength: memes?.length, trendsLength: trends?.length });
-    const result = await generateBatchScripts(topic, dialogues, memes, trends);
+    console.log("📤 Calling generateBatchScripts with:", { topic, dialoguesLength: dialogues?.length, memesLength: memes?.length, trendsLength: trends?.length, genre });
+    const result = await generateBatchScripts(topic, dialogues, memes, trends, genre);
     console.log("📥 generateBatchScripts returned:", result);
+
+    // If generateBatchScripts returned an empty array, use rule-based fallback
+    if (!result || !Array.isArray(result) || result.length === 0) {
+      console.log("⚠️ generateBatchScripts returned empty result, using rule-based fallback");
+      const fallbackScript = generateRuleBasedScript(topic, dialogues, memes, trends, genre);
+      return [fallbackScript];
+    }
+
     return result;
   } catch (error) {
     console.error("❌ Failed to get or generate batch:", error);
-    return [];
+    // Use rule-based fallback on error
+    try {
+      const fallbackScript = generateRuleBasedScript(topic, dialogues, memes, trends, genre);
+      return [fallbackScript];
+    } catch (fallbackError) {
+      console.error("❌ Failed to generate fallback script:", fallbackError);
+      return [];
+    }
   }
 };
 
@@ -829,57 +777,161 @@ function extractJSON(text) {
 }
 
 // Rule-based fallback generator
-function generateRuleBasedScript(topic, dialogues, memes, trends) {
-  // Simple keyword extraction
-  const extractKeywords = (topic) => {
-    return topic.toLowerCase().split(/\s+/); // split by spaces
-  };
+function generateRuleBasedScript(topic, dialogues, memes, trends, genre = "Comedy") {
+  // If we have relevant items, use them directly
+  // Otherwise, use the selectRelevantItems function to find relevant items
+  let selectedDialogues, selectedMemes, selectedTrends;
 
-  // Match score = count of overlapping keywords
-  const matchScore = (topicKeywords, item) => {
-    const itemKeywords = (item.relevance || []).map(k => k.toLowerCase());
-    return topicKeywords.filter(k => itemKeywords.includes(k)).length;
-  };
+  if (dialogues.length > 0 || memes.length > 0 || trends.length > 0) {
+    // We already have relevant items, use them directly
+    selectedDialogues = dialogues.slice(0, 2);
+    selectedMemes = memes.slice(0, 1);
+    selectedTrends = trends.slice(0, 1);
+  } else {
+    // No relevant items provided, try to find some from default datasets
+    // Import default datasets
+    const defaultDialogues = [];
+    const defaultMemes = [];
+    const defaultTrends = [];
 
-  // Smart selector
-  const selectRelevantItems = (dataset, topic, max = 2) => {
-    const keywords = extractKeywords(topic);
+    // Simple keyword extraction
+    const extractKeywords = (topic) => {
+      return topic.toLowerCase().split(/\s+/); // split by spaces
+    };
 
-    // Rank items by score
-    const ranked = dataset
-      .map(item => ({ ...item, score: matchScore(keywords, item) }))
-      .sort((a, b) => b.score - a.score);
+    // Match score = count of overlapping keywords
+    const matchScore = (topicKeywords, item) => {
+      const itemKeywords = (item.relevance || []).map(k => k.toLowerCase());
+      return topicKeywords.filter(k => itemKeywords.includes(k)).length;
+    };
 
-    // If no relevant, fallback to random shuffle
-    if (ranked[0].score === 0) {
-      // Shuffle array
-      const shuffled = [...dataset];
-      for (let i = shuffled.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    // Smart selector
+    const selectRelevantItems = (dataset, topic, max = 2) => {
+      const keywords = extractKeywords(topic);
+
+      // Rank items by score
+      const ranked = dataset
+        .map(item => ({ ...item, score: matchScore(keywords, item) }))
+        .sort((a, b) => b.score - a.score);
+
+      // If no relevant, fallback to random shuffle
+      if (ranked[0].score === 0) {
+        // Shuffle array
+        const shuffled = [...dataset];
+        for (let i = shuffled.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+        return shuffled.slice(0, max);
       }
-      return shuffled.slice(0, max);
-    }
 
-    return ranked.slice(0, max);
-  };
+      return ranked.slice(0, max);
+    };
 
-  // Select relevant items
-  const selectedDialogues = selectRelevantItems(dialogues, topic, 2);
-  const selectedMemes = selectRelevantItems(memes, topic, 1);
-  const selectedTrends = selectRelevantItems(trends, topic, 1);
+    // Select relevant items
+    selectedDialogues = selectRelevantItems(defaultDialogues, topic, 2);
+    selectedMemes = selectRelevantItems(defaultMemes, topic, 1);
+    selectedTrends = selectRelevantItems(defaultTrends, topic, 1);
+  }
+
+  // Find the most relevant item to use as punchline suggestion
+  const allItems = [...selectedDialogues, ...selectedMemes, ...selectedTrends];
+  let punchlineSuggestion = null;
+
+  if (allItems.length > 0) {
+    // Sort by relevance score if available, otherwise use first item
+    const sortedItems = allItems.sort((a, b) => (b.score || 0) - (a.score || 0));
+    punchlineSuggestion = sortedItems[0];
+  }
 
   const selectedDialogue = selectedDialogues[0]; // Pick first from shuffled
   const selectedMeme = selectedMemes[0]; // Pick first from shuffled
   const selectedTrend = selectedTrends[0]; // Pick first from shuffled
 
-  // Return structured JSON object matching AI format
+  // Generate a screenplay format fallback based on genre
+  const title = `Telugu Reel: ${topic}`;
+
+  // Customize content based on genre
+  let hookLine, contextLine, punchlineLine;
+
+  // Use punchline suggestion if available
+  if (punchlineSuggestion) {
+    punchlineLine = `${punchlineSuggestion.text || punchlineSuggestion.dialogue || punchlineSuggestion.caption || punchlineSuggestion.headline || "No punchline available"}`;
+  } else {
+    switch (genre) {
+      case "Comedy":
+        hookLine = selectedDialogue ? `CHARACTER reacts with "${selectedDialogue.text || selectedDialogue.dialogue}"` : `CHARACTER makes a funny face about ${topic}`;
+        contextLine = selectedTrend ? `TRENDING: ${selectedTrend.headline || selectedTrend.text}` : `Background music plays as CHARACTER explains ${topic}`;
+        punchlineLine = selectedMeme ? `CHARACTER says "${selectedMeme.caption || selectedMeme.text}"` : `CHARACTER makes a joke about ${topic}`;
+        break;
+      case "Cinematic":
+        hookLine = selectedDialogue ? `CHARACTER delivers "${selectedDialogue.text || selectedDialogue.dialogue}" dramatically` : `CHARACTER looks intensely at camera about ${topic}`;
+        contextLine = selectedTrend ? `NEWS FLASH: ${selectedTrend.headline || selectedTrend.text}` : `Scene shows dramatic visuals related to ${topic}`;
+        punchlineLine = selectedMeme ? `CHARACTER whispers "${selectedMeme.caption || selectedMeme.text}"` : `CHARACTER delivers climactic line about ${topic}`;
+        break;
+      case "Romantic":
+        hookLine = selectedDialogue ? `CHARACTER whispers "${selectedDialogue.text || selectedDialogue.dialogue}" lovingly` : `CHARACTER gazes dreamily at ${topic}`;
+        contextLine = selectedTrend ? `LOVE TREND: ${selectedTrend.headline || selectedTrend.text}` : `Romantic music plays as CHARACTER thinks about ${topic}`;
+        punchlineLine = selectedMeme ? `CHARACTER says "${selectedMeme.caption || selectedMeme.text}" affectionately` : `CHARACTER expresses love for ${topic}`;
+        break;
+      case "Savage":
+        hookLine = selectedDialogue ? `CHARACTER drops "${selectedDialogue.text || selectedDialogue.dialogue}" brutally` : `CHARACTER stares down ${topic} with attitude`;
+        contextLine = selectedTrend ? `BURNING ISSUE: ${selectedTrend.headline || selectedTrend.text}` : `Intense beat drops as CHARACTER faces ${topic}`;
+        punchlineLine = selectedMeme ? `CHARACTER claps back with "${selectedMeme.caption || selectedMeme.text}"` : `CHARACTER destroys ${topic} with savage wit`;
+        break;
+      default:
+        hookLine = selectedDialogue ? `CHARACTER says "${selectedDialogue.text || selectedDialogue.dialogue}"` : `CHARACTER starts talking about ${topic}`;
+        contextLine = selectedTrend ? `TRENDING: ${selectedTrend.headline || selectedTrend.text}` : `Background music plays as CHARACTER explains ${topic}`;
+        punchlineLine = selectedMeme ? `CHARACTER says "${selectedMeme.caption || selectedMeme.text}"` : `CHARACTER makes a point about ${topic}`;
+    }
+  }
+
+  // Create a basic screenplay format
+  let screenplay = `TITLE: ${title}
+
+FADE IN:
+
+SLUGLINE
+INT. SOCIAL MEDIA REEL - DAY
+
+HOOK (00:00–00:05)
+${hookLine || "CHARACTER enters scene"}
+
+CONTEXT (00:06–00:15)
+${contextLine || "Scene develops with background music"}
+
+PUNCHLINE (00:16–00:25)
+${punchlineLine || "CHARACTER delivers punchline"}
+
+CAPTION (SOCIAL MEDIA)
+"${topic} - Telugu style! 😂💯
+#${topic.replace(/\s+/g, '')} #TeluguReels #${genre}"
+
+FADE OUT.`;
+
+  // Create a safe punchline suggestion object for Firestore
+  let safePunchlineSuggestion = null;
+  if (punchlineSuggestion) {
+    safePunchlineSuggestion = {
+      id: punchlineSuggestion.id || null,
+      text: punchlineSuggestion.text || punchlineSuggestion.dialogue || punchlineSuggestion.caption || punchlineSuggestion.headline || "",
+      situation: punchlineSuggestion.situation || "",
+      type: punchlineSuggestion.type || "dialogue"
+    };
+
+    // Remove any undefined values
+    Object.keys(safePunchlineSuggestion).forEach(key => {
+      if (safePunchlineSuggestion[key] === undefined) {
+        safePunchlineSuggestion[key] = null;
+      }
+    });
+  }
+
+  // Return structured format with screenplay
   return {
-    hook: selectedDialogue ? `"${selectedDialogue.text}" - ${selectedDialogue.actor} style se ${topic} gurinchi matladina!` : `Ee ${topic} gurinchi cheppadaniki ready ga!`,
-    context: selectedTrend ? `${selectedTrend.headline} - ee news vinnaka ${topic} gurinchi alochinchadam start chesanu.` : `${topic} ante evvaru telusu ra!`,
-    punchline: selectedMeme ? `${selectedMeme.caption} - exactly ila react ayyanu ${topic} gurinchi!` : `${topic} ante ila untadi ra! 😅`,
-    caption: `${topic} #TeluguReels #funny #trending`,
-    usedDataset: true // Rule-based always uses dataset
+    screenplay: screenplay,
+    usedDataset: selectedDialogue || selectedMeme || selectedTrend ? true : false,
+    punchlineSuggestion: safePunchlineSuggestion
   };
 }
 
@@ -927,65 +979,132 @@ export async function generateWithAI(prompt) {
 }
 
 // Updated generateScriptWithRelevance function with robust error handling
-export async function generateScriptWithRelevance(topic, dialogues, memes, trends) {
+export async function generateScriptWithRelevance(topic, dialogues, memes, trends, genre = "Comedy") {
   try {
-    console.log("🤖 Generating script with relevance for topic:", topic);
+    console.log("🤖 Generating script with relevance for topic:", topic, "and genre:", genre);
 
-    // Create prompt with dataset context
-    const prompt = `
-You are a Telugu-English reel script writer.
-Generate JSON in this schema:
-{
-  "hook": "...",
-  "context": "...",
-  "punchline": "...",
-  "caption": "...",
-  "dialoguesYouCanUse": ["dialogue1", "dialogue2"]
-}
+    // 1️⃣ Find top relevant items using Fuse.js
+    // Import the relevance utility function
+    const { findRelevantItems } = await import("../utils/relevance");
 
-Topic: "${topic}"
-Relevant Context from DB: ${JSON.stringify([...dialogues, ...memes, ...trends], null, 2)}
+    const relevantDialogues = findRelevantItems(topic, dialogues, "dialogue", 1); // max 1 for controlled creativity
+    const relevantMemes = findRelevantItems(topic, memes, "meme", 1);         // max 1
+    const relevantTrends = findRelevantItems(topic, trends, "trend", 1);       // max 1
+
+    // Find the most relevant item to use as punchline suggestion
+    const allItems = [...relevantDialogues, ...relevantMemes, ...relevantTrends];
+    let punchlineSuggestion = null;
+
+    if (allItems.length > 0) {
+      // Sort by relevance score if available, otherwise use first item
+      const sortedItems = allItems.sort((a, b) => (b.score || 0) - (a.score || 0));
+      punchlineSuggestion = sortedItems[0];
+    }
+
+    console.log("🎯 Relevant items:", { relevantDialogues, relevantMemes, relevantTrends, punchlineSuggestion });
+
+    // 2️⃣ Build strict screenplay-only prompt with only relevant items
+    let prompt = `
+You are a Telugu-English Celtx screenplay writer for Instagram reels.  
+Your job is to generate a short screenplay (20–30s) based strictly on the TOPIC and GENRE.
+
+RULES:
+1. Use **exactly one dialogue** from the provided DATASET (don't use more than one).  
+2. Do not list multiple dataset items; just pick one that fits naturally.  
+3. Build a **proper HOOK** in the first 5 seconds that makes it Instagram-viral (relatable, funny, emotional, or shocking depending on GENRE).  
+4. Context must develop the situation. Punchline should land hard. Caption should be short, Gen-Z, Telugu-English mix.  
+5. Use Celtx screenplay structure only. No JSON.
+6. Include proper scene descriptions, character actions, and timing.
+7. If a PUNCHLINE SUGGESTION is provided, consider using it as the punchline as it's highly relevant to the topic.
+
+GENRE: ${genre}
+TOPIC: "${topic}"
+`;
+
+    // Add punchline suggestion if available
+    if (punchlineSuggestion) {
+      prompt += `PUNCHLINE SUGGESTION (highly relevant to topic): ${JSON.stringify(punchlineSuggestion)}\n\n`;
+    }
+
+    // Add datasets to prompt only if they contain items
+    if (relevantDialogues.length > 0) {
+      prompt += `DATASET (choose 1 dialogue ONLY):\n${JSON.stringify(relevantDialogues, null, 2)}\n`;
+    }
+
+    prompt += `
+EXAMPLE OUTPUT:
+TITLE: Paisa Pelliko Reel
+
+FADE IN:
+
+SLUGLINE
+INT. LIVING ROOM – EVENING
+
+HOOK (00:00–00:05)
+RAJU
+"Nuvvoka pani chey"
+
+CONTEXT (00:06–00:15)
+ANU
+"Family family upma thini bathikesthunnara"
+
+MOM
+"Naaa savu nen sastha neekenduku"
+
+PUNCHLINE (00:16–00:25)
+ANU
+"Nuv oka pani chay"
+
+CAPTION (SOCIAL MEDIA)
+"Sibling money fights in 30 seconds with Telugu memes! #TeluguReels #SiblingLove #MoneyTalk"
+
+FADE OUT.
 `;
 
     const res = await client.chat.completions.create({
       model: "gpt-5-nano",
       messages: [{ role: "user", content: prompt }],
-      response_format: { type: "json_object" },
+      // Remove response_format to allow plain text output instead of JSON
     });
 
     console.log("🤖 OpenAI raw response:", res.choices[0].message);
 
     const rawContent = res.choices[0].message.content;
-    const parsed = extractJSON(rawContent);
 
-    if (parsed && parsed.hook && parsed.context && parsed.punchline && parsed.caption) {
-      console.log("✅ Successfully parsed AI response:", parsed);
-      // Ensure dialoguesYouCanUse is included in the response
-      const result = { ...parsed, usedDataset: true };
-      if (!result.dialoguesYouCanUse && dialogues.length > 0) {
-        // Extract dialogues from the dataset
-        result.dialoguesYouCanUse = dialogues.map(d => d.dialogue || d.text).slice(0, 2);
+    // Check if we got a valid screenplay response
+    if (rawContent && rawContent.includes("TITLE:") && rawContent.includes("FADE IN:")) {
+      console.log("✅ Successfully generated screenplay:", rawContent);
+
+      // Create a safe punchline suggestion object for Firestore
+      let safePunchlineSuggestion = null;
+      if (punchlineSuggestion) {
+        safePunchlineSuggestion = {
+          id: punchlineSuggestion.id || null,
+          text: punchlineSuggestion.text || punchlineSuggestion.dialogue || punchlineSuggestion.caption || punchlineSuggestion.headline || "",
+          situation: punchlineSuggestion.situation || "",
+          type: punchlineSuggestion.type || "dialogue"
+        };
+
+        // Remove any undefined values
+        Object.keys(safePunchlineSuggestion).forEach(key => {
+          if (safePunchlineSuggestion[key] === undefined) {
+            safePunchlineSuggestion[key] = null;
+          }
+        });
       }
-      return result;
+
+      return {
+        screenplay: rawContent,
+        usedDataset: relevantDialogues.length > 0 || relevantMemes.length > 0 || relevantTrends.length > 0,
+        punchlineSuggestion: safePunchlineSuggestion
+      };
     } else {
-      console.warn("⚠️ Failed to parse valid JSON or missing fields, using rule-based fallback");
-      // Use rule-based fallback
-      const fallbackResult = generateRuleBasedScript(topic, dialogues, memes, trends);
-      // Add dialoguesYouCanUse to the fallback result
-      if (!fallbackResult.dialoguesYouCanUse && dialogues.length > 0) {
-        fallbackResult.dialoguesYouCanUse = dialogues.map(d => d.dialogue || d.text).slice(0, 2);
-      }
-      return fallbackResult;
+      console.warn("⚠️ Invalid screenplay format, using rule-based fallback");
+      return generateRuleBasedScript(topic, relevantDialogues, relevantMemes, relevantTrends, genre);
     }
   } catch (error) {
     console.error("❌ OpenAI API error:", error);
-    // Use rule-based fallback on error
-    const fallbackResult = generateRuleBasedScript(topic, dialogues, memes, trends);
-    // Add dialoguesYouCanUse to the fallback result
-    if (!fallbackResult.dialoguesYouCanUse && dialogues.length > 0) {
-      fallbackResult.dialoguesYouCanUse = dialogues.map(d => d.dialogue || d.text).slice(0, 2);
-    }
-    return fallbackResult;
+    return generateRuleBasedScript(topic, [], [], [], genre);
   }
 }
 

@@ -2,7 +2,7 @@ import React from 'react';
 
 export function Card({ className = '', children, ...props }) {
     const classes = [
-        'rounded-2xl bg-white/10 backdrop-blur-xl border border-white/15',
+        'rounded-lg bg-white/10 backdrop-blur-xl border border-white/15',
         'shadow-[0_10px_30px_rgba(0,0,0,0.18)]',
         'transition-transform duration-300 ease-out will-change-transform',
         'hover:-translate-y-0.5',
